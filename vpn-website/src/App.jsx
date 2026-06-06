@@ -124,6 +124,7 @@ export default function VPNLandingPage() {
   const [loadingConfigDeviceId, setLoadingConfigDeviceId] = useState(null);
   const [deviceError, setDeviceError] = useState('');
   const [createdConfig, setCreatedConfig] = useState(null);
+  const [isConfigTextVisible, setIsConfigTextVisible] = useState(false);
 
   const customerId = useMemo(() => createCustomerId(), []);
 
@@ -280,6 +281,7 @@ export default function VPNLandingPage() {
       }).then(readJson);
 
       setCreatedConfig(await withQrDataUrl({ ...payload, device_name: name }));
+      setIsConfigTextVisible(false);
       setDeviceName('');
       await loadAccount();
     } catch (error) {
@@ -296,6 +298,7 @@ export default function VPNLandingPage() {
         method: 'DELETE'
       }).then(readJson);
       setCreatedConfig(null);
+      setIsConfigTextVisible(false);
       await loadAccount();
     } catch (error) {
       setDeviceError(userMessage(error, 'Не удалось удалить устройство'));
@@ -314,6 +317,7 @@ export default function VPNLandingPage() {
         device_name: device.name,
         vpn_ip: device.vpn_ip
       }));
+      setIsConfigTextVisible(false);
     } catch (error) {
       setDeviceError(userMessage(error, 'Не удалось загрузить конфиг'));
     } finally {
@@ -523,9 +527,24 @@ export default function VPNLandingPage() {
                     <div className="font-bold">Файл: {createdConfig.conf_filename}</div>
                     {createdConfig.vpn_ip && <div>VPN IP: {createdConfig.vpn_ip}</div>}
                     <div className="mt-3 text-emerald-800">
-                      Текст конфига скрыт в кабинете. Для подключения используйте QR-код или скачанный файл.
+                      Текст конфига скрыт по умолчанию. Его можно раскрыть ниже, если нужно скопировать вручную.
                     </div>
                   </div>
+                </div>
+                <div className="mt-5 border-t border-emerald-200 pt-5">
+                  <button
+                    onClick={() => setIsConfigTextVisible((current) => !current)}
+                    className="rounded-lg border border-emerald-300 bg-white px-4 py-3 text-sm font-bold text-emerald-900 transition hover:border-emerald-500"
+                  >
+                    {isConfigTextVisible ? 'Скрыть текст конфига' : 'Показать текст конфига'}
+                  </button>
+                  {isConfigTextVisible && (
+                    <textarea
+                      readOnly
+                      value={createdConfig.conf_text}
+                      className="mt-4 h-64 w-full resize-y rounded-lg border border-emerald-200 bg-white p-4 font-mono text-xs outline-none"
+                    />
+                  )}
                 </div>
               </div>
             )}
@@ -571,7 +590,7 @@ export default function VPNLandingPage() {
                           disabled={loadingConfigDeviceId === device.id}
                           className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:border-slate-500"
                         >
-                          {loadingConfigDeviceId === device.id ? 'Загрузка...' : 'Конфиг'}
+                          {loadingConfigDeviceId === device.id ? 'Загрузка...' : 'Показать конфиг'}
                         </button>
                         <button
                           onClick={() => deleteDevice(device.id)}
