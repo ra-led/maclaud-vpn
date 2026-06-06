@@ -353,6 +353,131 @@ async function syncSucceededPaymentToControlPlane(payment) {
   return response.json();
 }
 
+async function controlPlaneRequest({ method = 'GET', path: apiPath, body }) {
+  if (!CONTROL_PLANE_INTERNAL_TOKEN) {
+    const error = new Error('Control-plane token is not configured');
+    error.status = 500;
+    throw error;
+  }
+
+  const response = await fetch(`${CONTROL_PLANE_API_URL}${apiPath}`, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Internal-Token': CONTROL_PLANE_INTERNAL_TOKEN
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch (_error) {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    const error = new Error(payload?.detail || payload?.error || `Control-plane request failed (${response.status})`);
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload;
+}
+
+async function getWebsitePaymentsForUser(userId) {
+  const result = await pool.query(
+    `SELECT *
+     FROM yookassa_payments
+     WHERE user_id = $1
+     ORDER BY created_at DESC
+     LIMIT 20`,
+    [String(userId)]
+  );
+  return result.rows.map(mapPaymentRow);
+}
+
+function sendApiError(res, error, fallback = 'Unexpected API error') {
+  const status = Number.isInteger(error?.status) ? error.status : 500;
+  return res.status(status).json({
+    error: error instanceof Error ? error.message : fallback,
+    detail: error?.payload || null
+  });
+}
+
+app.get('/api/account/:userId', async (req, res) => {
+  const accountId = parseControlPlaneAccountId(req.params.userId);
+  if (!accountId) {
+    return res.status(400).json({ error: 'Invalid account id' });
+  }
+
+  try {
+    const profile = await controlPlaneRequest({
+      method: 'POST',
+      path: '/v1/users',
+      body: {
+        telegram_id: accountId,
+        username: req.query.email ? String(req.query.email) : null,
+        first_name: req.query.name ? String(req.query.name) : null
+      }
+    });
+
+    const [balance, devices, payments] = await Promise.all([
+      controlPlaneRequest({ path: `/v1/users/${accountId}/balance` }),
+      controlPlaneRequest({ path: `/v1/users/${accountId}/devices` }),
+      getWebsitePaymentsForUser(accountId)
+    ]);
+
+    return res.json({ profile, balance, devices, payments });
+  } catch (error) {
+    console.error('account load failed', { message: error instanceof Error ? error.message : String(error) });
+    return sendApiError(res, error, 'Failed to load account');
+  }
+});
+
+app.post('/api/devices', async (req, res) => {
+  const accountId = parseControlPlaneAccountId(req.body?.user_id);
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+  if (!accountId) {
+    return res.status(400).json({ error: 'Invalid account id' });
+  }
+  if (!name) {
+    return res.status(400).json({ error: 'Device name is required' });
+  }
+
+  try {
+    const created = await controlPlaneRequest({
+      method: 'POST',
+      path: '/v1/devices',
+      body: { telegram_id: accountId, name }
+    });
+    return res.json(created);
+  } catch (error) {
+    console.error('device create failed', { message: error instanceof Error ? error.message : String(error) });
+    return sendApiError(res, error, 'Failed to create device');
+  }
+});
+
+app.delete('/api/devices/:deviceId', async (req, res) => {
+  const accountId = parseControlPlaneAccountId(req.query.user_id);
+  const deviceId = Number(req.params.deviceId);
+  if (!accountId || !Number.isSafeInteger(deviceId) || deviceId <= 0) {
+    return res.status(400).json({ error: 'Invalid delete request' });
+  }
+
+  try {
+    const deleted = await controlPlaneRequest({
+      method: 'DELETE',
+      path: `/v1/devices/${deviceId}?telegram_id=${encodeURIComponent(accountId)}`
+    });
+    return res.json(deleted);
+  } catch (error) {
+    console.error('device delete failed', { message: error instanceof Error ? error.message : String(error) });
+    return sendApiError(res, error, 'Failed to delete device');
+  }
+});
+
 app.post('/api/create-payment', async (req, res) => {
   if (!requireYookassaConfig(res)) {
     return;
