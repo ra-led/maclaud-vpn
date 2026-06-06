@@ -87,6 +87,14 @@ async function readJson(response) {
   return payload;
 }
 
+function userMessage(error, fallback) {
+  const message = error instanceof Error ? error.message : fallback;
+  if (message === 'Insufficient balance to add a device') {
+    return 'Недостаточно баланса для добавления устройства';
+  }
+  return message || fallback;
+}
+
 export default function VPNLandingPage() {
   const [authMode, setAuthMode] = useState(null);
   const [profile, setProfile] = useState(() => getStoredProfile());
@@ -123,7 +131,7 @@ export default function VPNLandingPage() {
       const payload = await fetch(`/api/account/${customerId}?${params}`).then(readJson);
       setDashboard(payload);
     } catch (error) {
-      setAccountError(error instanceof Error ? error.message : 'Не удалось загрузить личный кабинет');
+      setAccountError(userMessage(error, 'Не удалось загрузить личный кабинет'));
     } finally {
       setIsLoadingAccount(false);
     }
@@ -237,7 +245,7 @@ export default function VPNLandingPage() {
 
       window.location.href = payload.confirmation_url;
     } catch (error) {
-      setPaymentError(error instanceof Error ? error.message : 'Неожиданная ошибка оплаты');
+      setPaymentError(userMessage(error, 'Неожиданная ошибка оплаты'));
     } finally {
       setIsPaying(false);
     }
@@ -264,7 +272,7 @@ export default function VPNLandingPage() {
       setDeviceName('');
       await loadAccount();
     } catch (error) {
-      setDeviceError(error instanceof Error ? error.message : 'Не удалось добавить устройство');
+      setDeviceError(userMessage(error, 'Не удалось добавить устройство'));
     } finally {
       setIsCreatingDevice(false);
     }
@@ -276,9 +284,10 @@ export default function VPNLandingPage() {
       await fetch(`/api/devices/${deviceId}?user_id=${encodeURIComponent(customerId)}`, {
         method: 'DELETE'
       }).then(readJson);
+      setCreatedConfig(null);
       await loadAccount();
     } catch (error) {
-      setDeviceError(error instanceof Error ? error.message : 'Не удалось удалить устройство');
+      setDeviceError(userMessage(error, 'Не удалось удалить устройство'));
     }
   }
 
