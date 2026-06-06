@@ -478,6 +478,52 @@ app.delete('/api/devices/:deviceId', async (req, res) => {
   }
 });
 
+app.get('/api/devices/:deviceId/config', async (req, res) => {
+  const accountId = parseControlPlaneAccountId(req.query.user_id);
+  const deviceId = Number(req.params.deviceId);
+  if (!accountId || !Number.isSafeInteger(deviceId) || deviceId <= 0) {
+    return res.status(400).json({ error: 'Invalid config request' });
+  }
+
+  try {
+    const devices = await controlPlaneRequest({ path: `/v1/users/${accountId}/devices` });
+    const device = devices.find((item) => item.id === deviceId);
+    if (!device || device.status !== 'active') {
+      return res.status(404).json({ error: 'Active device was not found' });
+    }
+
+    const response = await fetch(`${CONTROL_PLANE_API_URL}/internal/devices/${deviceId}/config`, {
+      method: 'POST',
+      headers: {
+        'X-Internal-Token': CONTROL_PLANE_INTERNAL_TOKEN
+      }
+    });
+
+    const confText = await response.text();
+    if (!response.ok) {
+      let payload = null;
+      try {
+        payload = JSON.parse(confText);
+      } catch (_error) {
+        payload = null;
+      }
+      const error = new Error(payload?.detail || payload?.error || `Config request failed (${response.status})`);
+      error.status = response.status;
+      error.payload = payload;
+      throw error;
+    }
+
+    return res.json({
+      device_id: deviceId,
+      conf_filename: `device-${deviceId}-amneziawg.conf`,
+      conf_text: confText
+    });
+  } catch (error) {
+    console.error('device config failed', { message: error instanceof Error ? error.message : String(error) });
+    return sendApiError(res, error, 'Failed to load device config');
+  }
+});
+
 app.post('/api/create-payment', async (req, res) => {
   if (!requireYookassaConfig(res)) {
     return;

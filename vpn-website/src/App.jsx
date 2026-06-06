@@ -1,3 +1,4 @@
+import QRCode from 'qrcode';
 import { useEffect, useMemo, useState } from 'react';
 
 const STORAGE_PROFILE_KEY = 'vpngo_profile';
@@ -95,6 +96,15 @@ function userMessage(error, fallback) {
   return message || fallback;
 }
 
+async function withQrDataUrl(config) {
+  const qrDataUrl = await QRCode.toDataURL(config.conf_text, {
+    errorCorrectionLevel: 'M',
+    margin: 2,
+    width: 320
+  });
+  return { ...config, qrDataUrl };
+}
+
 export default function VPNLandingPage() {
   const [authMode, setAuthMode] = useState(null);
   const [profile, setProfile] = useState(() => getStoredProfile());
@@ -111,6 +121,7 @@ export default function VPNLandingPage() {
   const [topUpAmount, setTopUpAmount] = useState('300');
   const [deviceName, setDeviceName] = useState('');
   const [isCreatingDevice, setIsCreatingDevice] = useState(false);
+  const [loadingConfigDeviceId, setLoadingConfigDeviceId] = useState(null);
   const [deviceError, setDeviceError] = useState('');
   const [createdConfig, setCreatedConfig] = useState(null);
 
@@ -268,7 +279,7 @@ export default function VPNLandingPage() {
         body: JSON.stringify({ user_id: customerId, name })
       }).then(readJson);
 
-      setCreatedConfig(payload);
+      setCreatedConfig(await withQrDataUrl({ ...payload, device_name: name }));
       setDeviceName('');
       await loadAccount();
     } catch (error) {
@@ -288,6 +299,25 @@ export default function VPNLandingPage() {
       await loadAccount();
     } catch (error) {
       setDeviceError(userMessage(error, 'Не удалось удалить устройство'));
+    }
+  }
+
+  async function openDeviceConfig(device) {
+    setDeviceError('');
+    setLoadingConfigDeviceId(device.id);
+    try {
+      const payload = await fetch(
+        `/api/devices/${device.id}/config?user_id=${encodeURIComponent(customerId)}`
+      ).then(readJson);
+      setCreatedConfig(await withQrDataUrl({
+        ...payload,
+        device_name: device.name,
+        vpn_ip: device.vpn_ip
+      }));
+    } catch (error) {
+      setDeviceError(userMessage(error, 'Не удалось загрузить конфиг'));
+    } finally {
+      setLoadingConfigDeviceId(null);
     }
   }
 
@@ -467,9 +497,11 @@ export default function VPNLandingPage() {
               <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <h2 className="text-xl font-black text-emerald-950">Конфиг готов</h2>
+                    <h2 className="text-xl font-black text-emerald-950">
+                      Конфиг {createdConfig.device_name ? `для ${createdConfig.device_name}` : 'готов'}
+                    </h2>
                     <p className="mt-1 text-sm text-emerald-800">
-                      Скачайте файл и импортируйте его в AmneziaWG/WireGuard-клиент.
+                      Отсканируйте QR-код или скачайте файл для импорта в AmneziaWG/WireGuard-клиент.
                     </p>
                   </div>
                   <button
@@ -479,11 +511,22 @@ export default function VPNLandingPage() {
                     Скачать конфиг
                   </button>
                 </div>
-                <textarea
-                  readOnly
-                  value={createdConfig.conf_text}
-                  className="mt-4 h-56 w-full resize-y rounded-lg border border-emerald-200 bg-white p-4 font-mono text-xs outline-none"
-                />
+                <div className="mt-5 grid gap-5 md:grid-cols-[auto_1fr] md:items-center">
+                  <div className="rounded-lg border border-emerald-200 bg-white p-4">
+                    <img
+                      src={createdConfig.qrDataUrl}
+                      alt="QR-код конфигурации VPN"
+                      className="h-64 w-64 max-w-full"
+                    />
+                  </div>
+                  <div className="text-sm leading-7 text-emerald-900">
+                    <div className="font-bold">Файл: {createdConfig.conf_filename}</div>
+                    {createdConfig.vpn_ip && <div>VPN IP: {createdConfig.vpn_ip}</div>}
+                    <div className="mt-3 text-emerald-800">
+                      Текст конфига скрыт в кабинете. Для подключения используйте QR-код или скачанный файл.
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -493,12 +536,12 @@ export default function VPNLandingPage() {
                 <span className="text-sm font-semibold text-slate-500">{devices.length} активных</span>
               </div>
               <div className="mt-5 rounded-lg border border-slate-200">
-                <div className="hidden grid-cols-[1fr_1fr_0.75fr_0.8fr_0.6fr] bg-slate-50 px-4 py-3 text-xs font-bold uppercase text-slate-500 md:grid">
+                <div className="hidden grid-cols-[1fr_1fr_0.75fr_0.8fr_1fr] bg-slate-50 px-4 py-3 text-xs font-bold uppercase text-slate-500 md:grid">
                   <div>Устройство</div>
                   <div>Нода</div>
                   <div>Статус</div>
                   <div>Трафик</div>
-                  <div />
+                  <div>Конфиг</div>
                 </div>
                 {devices.length === 0 ? (
                   <div className="px-4 py-8 text-sm text-slate-500">
@@ -508,7 +551,7 @@ export default function VPNLandingPage() {
                   devices.map((device) => (
                     <div
                       key={device.id}
-                      className="grid gap-2 border-t border-slate-200 px-4 py-4 text-sm first:border-t-0 md:grid-cols-[1fr_1fr_0.75fr_0.8fr_0.6fr] md:items-center"
+                      className="grid gap-2 border-t border-slate-200 px-4 py-4 text-sm first:border-t-0 md:grid-cols-[1fr_1fr_0.75fr_0.8fr_1fr] md:items-center"
                     >
                       <div>
                         <div className="font-bold">{device.name}</div>
@@ -522,12 +565,21 @@ export default function VPNLandingPage() {
                       <div className="text-slate-600">
                         {formatBytes((device.rx_bytes || 0) + (device.tx_bytes || 0))}
                       </div>
-                      <button
-                        onClick={() => deleteDevice(device.id)}
-                        className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:border-red-300 hover:text-red-700"
-                      >
-                        Удалить
-                      </button>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={() => openDeviceConfig(device)}
+                          disabled={loadingConfigDeviceId === device.id}
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:border-slate-500"
+                        >
+                          {loadingConfigDeviceId === device.id ? 'Загрузка...' : 'Конфиг'}
+                        </button>
+                        <button
+                          onClick={() => deleteDevice(device.id)}
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:border-red-300 hover:text-red-700"
+                        >
+                          Удалить
+                        </button>
+                      </div>
                     </div>
                   ))
                 )}
