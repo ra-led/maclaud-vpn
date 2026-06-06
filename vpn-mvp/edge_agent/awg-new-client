@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -lt 1 || $# -gt 2 ]]; then
+  echo "Usage: awg-new-client NAME [IP_LAST_OCTET]" >&2
+  exit 2
+fi
+
+NAME_RAW="$1"
+NAME="$(printf "%s" "$NAME_RAW" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//')"
+if [[ -z "$NAME" ]]; then
+  echo "Invalid client name: $NAME_RAW" >&2
+  exit 2
+fi
+
+IFACE="${AWG_INTERFACE:-awg0}"
+SERVER_IP="${EDGE_PUBLIC_IP:-${AWG_SERVER_IP:-203.0.113.10}}"
+PORT="${AWG_PORT:-51820}"
+NET_PREFIX="${AWG_NET:-10.77.0}"
+SERVER_CONF="${AWG_SERVER_CONF:-/etc/amnezia/amneziawg/${IFACE}.conf}"
+OUT_DIR="${AWG_CLIENT_CONFIG_DIR:-/root/vpn-configs/amneziawg}"
+QR_DIR="${AWG_QR_DIR:-/root/vpn-configs/qrs/amneziawg}"
+LOCK="/run/awg-new-client.lock"
+
+mkdir -p "$OUT_DIR" "$QR_DIR"
+chmod 700 "$OUT_DIR" "$QR_DIR"
+
+exec 9>"$LOCK"
+flock 9
+
+OUT="${OUT_DIR}/${NAME}.conf"
+QR="${QR_DIR}/${NAME}.png"
+if [[ -e "$OUT" ]]; then
+  echo "Refusing to overwrite existing client config: $OUT" >&2
+  exit 1
+fi
+
+if [[ $# -eq 2 ]]; then
+  LAST="$2"
+  if ! [[ "$LAST" =~ ^[0-9]+$ ]] || (( LAST < 2 || LAST > 254 )); then
+    echo "IP_LAST_OCTET must be a number from 2 to 254" >&2
+    exit 2
+  fi
+else
+  LAST="$(
+    {
+      grep -Eo "${NET_PREFIX//./\\.}\\.[0-9]+/32" "$SERVER_CONF" 2>/dev/null || true
+      awg show "$IFACE" allowed-ips 2>/dev/null | grep -Eo "${NET_PREFIX//./\\.}\\.[0-9]+/32" || true
+    } | awk -F'[./]' '{ print $4 }' | sort -n | awk '
+      BEGIN { next_ip = 2 }
+      { used[$1] = 1 }
+      END {
+        for (i = 2; i <= 254; i++) {
+          if (!(i in used)) {
+            print i
+            exit
+          }
+        }
+        exit 1
+      }'
+  )"
+fi
+
+CLIENT_IP="${NET_PREFIX}.${LAST}"
+if grep -q "AllowedIPs = ${CLIENT_IP}/32" "$SERVER_CONF"; then
+  echo "IP already exists in $SERVER_CONF: $CLIENT_IP" >&2
+  exit 1
+fi
+
+SERVER_PUB="$(awg show "$IFACE" public-key)"
+CLIENT_PRIV="$(awg genkey)"
+CLIENT_PUB="$(printf "%s" "$CLIENT_PRIV" | awg pubkey)"
+PSK="$(awg genpsk)"
+
+get_conf_value() {
+  local key="$1"
+  awk -F= -v k="$key" '$1 ~ "^[[:space:]]*" k "[[:space:]]*$" { gsub(/[[:space:]]/, "", $2); print $2; exit }' "$SERVER_CONF"
+}
+
+Jc="$(get_conf_value Jc)"
+Jmin="$(get_conf_value Jmin)"
+Jmax="$(get_conf_value Jmax)"
+S1="$(get_conf_value S1)"
+S2="$(get_conf_value S2)"
+H1="$(get_conf_value H1)"
+H2="$(get_conf_value H2)"
+H3="$(get_conf_value H3)"
+H4="$(get_conf_value H4)"
+
+PSK_FILE="$(mktemp)"
+trap 'rm -f "$PSK_FILE"' EXIT
+printf "%s" "$PSK" > "$PSK_FILE"
+awg set "$IFACE" peer "$CLIENT_PUB" preshared-key "$PSK_FILE" allowed-ips "${CLIENT_IP}/32"
+
+cat >> "$SERVER_CONF" <<EOF
+
+# $NAME
+[Peer]
+PublicKey = $CLIENT_PUB
+PresharedKey = $PSK
+AllowedIPs = ${CLIENT_IP}/32
+EOF
+
+cat > "$OUT" <<EOF
+[Interface]
+PrivateKey = $CLIENT_PRIV
+Address = ${CLIENT_IP}/32
+DNS = ${AWG_CLIENT_DNS:-1.1.1.1, 8.8.8.8}
+Jc = $Jc
+Jmin = $Jmin
+Jmax = $Jmax
+S1 = $S1
+S2 = $S2
+H1 = $H1
+H2 = $H2
+H3 = $H3
+H4 = $H4
+
+[Peer]
+PublicKey = $SERVER_PUB
+PresharedKey = $PSK
+Endpoint = ${SERVER_IP}:${PORT}
+AllowedIPs = ${AWG_ALLOWED_IPS:-0.0.0.0/0, ::/0}
+PersistentKeepalive = ${AWG_KEEPALIVE:-25}
+EOF
+
+chmod 600 "$OUT"
+qrencode -t PNG -o "$QR" < "$OUT"
+chmod 600 "$QR"
+
+cat <<EOF
+Created AmneziaWG client: $NAME
+IP: ${CLIENT_IP}/32
+Config: $OUT
+QR: $QR
+EOF

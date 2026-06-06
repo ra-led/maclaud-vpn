@@ -17,8 +17,11 @@ class Settings(BaseSettings):
     edge_agent_url: str = "auto"
     control_plane_url: str = "https://control.example.com"
     edge_shared_secret: str = "dev-secret"
-    wireguard_interface: str = "wg0"
-    wireguard_subnet: str = "10.66.0.0/24"
+    awg_interface: str = "awg0"
+    awg_generator_cmd: str = "/usr/local/sbin/awg-new-client"
+    awg_server_conf: str = "/etc/amnezia/amneziawg/awg0.conf"
+    awg_client_config_dir: str = "/root/vpn-configs/amneziawg"
+    awg_qr_dir: str = "/root/vpn-configs/qrs/amneziawg"
 
     @property
     def resolved_edge_agent_url(self) -> str:

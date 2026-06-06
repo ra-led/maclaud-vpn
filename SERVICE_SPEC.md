@@ -2,18 +2,18 @@
 
 ## Purpose
 
-This repository implements a paid WireGuard VPN service. The product consists of:
+This repository implements a paid AmneziaWG VPN service. The product consists of:
 
 - A public landing website with pricing, a customer dashboard UI, and YooKassa payments.
 - A central control plane hosted on the main node. It owns users, balances, payments, devices, node registry, billing, and operational state.
-- One or more internet-distributed edge nodes that run WireGuard and expose a small authenticated agent API for peer lifecycle commands.
+- One or more internet-distributed edge nodes that run AmneziaWG in Docker and expose a small authenticated agent API for peer lifecycle commands.
 - A Telegram bot interface for MVP operations. Telegram payments are not part of the production payment flow.
 
 ## High-Level Architecture
 
 The control plane is the source of truth. It stores users, account balances, device records, node records, payment records, usage counters, billing events, and audit logs in PostgreSQL.
 
-Edge nodes can be deployed on arbitrary servers. Each edge node runs WireGuard and an edge-agent. On startup, the edge-agent connects to the central control plane, registers its public API URL, receives a node token, sends heartbeats and usage deltas, and applies peer commands by calling `wg set`.
+Edge nodes can be deployed on arbitrary servers. Each edge node runs an `awg` container and an `edge-agent` container in the same network namespace. On startup, the edge-agent connects to the central control plane, registers its public API URL, receives a node token, sends heartbeats and usage deltas, and applies peer commands through `awg set`.
 
 The website handles YooKassa checkout. After YooKassa confirms a successful payment, the website verifies the payment through the YooKassa API, persists the payment event locally, and calls the control plane internal payment endpoint to top up the matching account balance.
 
@@ -50,7 +50,7 @@ Responsibilities:
 
 - Store account, billing, device, node, and usage state.
 - Accept internal payment confirmations from the website.
-- Generate WireGuard client keys and config files.
+- Ask selected edge nodes to generate AmneziaWG client configs and QR codes.
 - Select a healthy node for new devices.
 - Apply peer commands to edge nodes.
 - Run daily billing and suspend devices when balance is insufficient.
@@ -69,14 +69,14 @@ Primary services:
 
 ### Edge Node
 
-Location: `vpn-mvp/edge_agent`
+Location: `vpn-mvp/edge_agent` and `vpn-mvp/edge_awg`
 
 Responsibilities:
 
 - Register the node with the control plane using `EDGE_SHARED_SECRET`.
 - Publish the edge-agent URL that the control plane can call for peer commands.
 - Persist the issued node token locally.
-- Wait for the WireGuard interface to become available.
+- Wait for the AmneziaWG interface to become available.
 - Restore active peers from local state after restart.
 - Apply peer create, delete, suspend, and resume commands.
 - Send heartbeat and usage deltas to the control plane.
@@ -108,11 +108,11 @@ The control-plane payment confirmation is idempotent by `external_payment_id`, s
 1. A user requests a new device.
 2. The control plane checks that the user is not banned and has a positive balance.
 3. The control plane selects the healthiest node with available capacity.
-4. The control plane generates a WireGuard keypair and VPN IP.
+4. The control plane creates a device row and asks the edge-agent to create an AmneziaWG peer.
 5. The control plane creates the device in the current DB transaction and flushes it to obtain a device id.
 6. The control plane calls the selected edge-agent `POST /peers`.
 7. If the edge command fails, the DB transaction is rolled back and no active device is stored.
-8. If the edge command succeeds, the device is committed as active and the WireGuard config plus QR code are returned to the user.
+8. If the edge command succeeds, the device is committed as active and the AmneziaWG `.conf` plus QR code are returned to the user.
 
 Regenerating a config applies the new peer on the edge before committing the new key to the database. Deleting a device removes the peer from the edge before marking the device deleted.
 
@@ -133,7 +133,7 @@ Required connectivity:
 
 - Edge -> Control Plane: the edge-agent must reach `CONTROL_PLANE_URL`.
 - Control Plane -> Edge: the control-plane `api` and `worker` must reach the registered `EDGE_AGENT_URL`.
-- VPN Clients -> Edge: clients must reach the edge server's WireGuard UDP endpoint.
+- VPN Clients -> Edge: clients must reach the edge server's AmneziaWG UDP port.
 
 Edge registration payload includes:
 
@@ -148,7 +148,7 @@ Edge registration payload includes:
 For local single-host Docker deployments:
 
 - Control-plane API is published on host port `8000`.
-- Edge-agent is published through the WireGuard service on host port `8081`.
+- Edge-agent is published through the AWG service network namespace on host port `8081`.
 - `CONTROL_PLANE_URL=http://host.docker.internal:8000`
 - `EDGE_AGENT_URL=http://host.docker.internal:8081`
 - Compose files add `host.docker.internal:host-gateway` for Linux Docker compatibility.
@@ -157,7 +157,7 @@ For production:
 
 - `CONTROL_PLANE_URL` should point to the central control-plane URL reachable from every edge node, for example `https://control.example.com`.
 - `EDGE_AGENT_URL=auto` publishes `http://EDGE_PUBLIC_IP:EDGE_AGENT_PORT`; set an explicit HTTPS URL if the edge-agent is behind a reverse proxy or private overlay network.
-- `EDGE_PUBLIC_IP` must be the address clients use for WireGuard and, when `EDGE_AGENT_URL=auto`, the address the control plane uses for agent commands.
+- `EDGE_PUBLIC_IP` must be the address clients use in AmneziaWG endpoints and, when `EDGE_AGENT_URL=auto`, the address the control plane uses for agent commands.
 - The edge-agent port should be firewall-restricted to the central control-plane IP whenever possible.
 - Internal tokens and node tokens must be treated as production secrets.
 

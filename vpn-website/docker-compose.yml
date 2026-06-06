@@ -5,7 +5,7 @@ services:
     environment:
       - POSTGRES_DB=vpn_website
       - POSTGRES_USER=vpn
-      - POSTGRES_PASSWORD=vpn
+      - POSTGRES_PASSWORD=${WEBSITE_POSTGRES_PASSWORD:-vpn}
     volumes:
       - postgres_data:/var/lib/postgresql/data
 

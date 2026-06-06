@@ -1,8 +1,8 @@
-# MVP VPN (WireGuard + Telegram)
+# MVP VPN (AmneziaWG + Telegram)
 
 Готовый MVP по `TASK.md` с двумя стекaми Docker Compose:
 - `docker-compose.control.yml`: главная нода / control plane (`nginx`, `api`, `bot`, `worker`, `scheduler`, `postgres`, `redis`)
-- `docker-compose.edge.yml`: edge-node (`wireguard`, `edge-agent`), которую можно выкатывать на отдельных серверах
+- `docker-compose.edge.yml`: edge-node (`awg`, `edge-agent`), которую можно выкатывать на отдельных серверах
 
 ## Что реализовано
 
@@ -26,7 +26,11 @@
   - публикация своего `EDGE_AGENT_URL` для команд от control-plane
   - heartbeat раз в 30 сек
   - отправка usage
-  - внутренние peer-команды (`create/delete/suspend/resume`)
+- Edge AWG:
+  - Docker-контейнер с AmneziaWG userspace/backend
+  - авто-создание `/etc/amnezia/amneziawg/awg0.conf` при первом старте
+  - публикация UDP-порта `AWG_PORT`
+  - общий volume с edge-agent для server config, QR и client `.conf`
 - PostgreSQL модели + Alembic migration
 - Nginx reverse proxy
 - Log rotation в обоих compose
@@ -52,7 +56,6 @@ cp .env.edge.example .env.edge
 
 2. Обязательные переменные в `.env.control`:
 - `TELEGRAM_BOT_TOKEN`
-- `SERVER_PUBLIC_KEY`
 - `FERNET_KEY` (можно сгенерировать: `python3 -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())"`)
 - `EDGE_SHARED_SECRET` (должен совпадать в `.env.edge`)
 - `INTERNAL_API_TOKEN` (для bot/internal endpoints)
@@ -76,16 +79,18 @@ docker compose -f docker-compose.edge.yml up --build -d
 Идея деплоя такая:
 
 1. На главной ноде запущен `docker-compose.control.yml`; она хранит БД и пул VPN-серверов.
-2. На любом edge-сервере копируется `docker-compose.edge.yml`, `edge_agent/` и `.env.edge`.
+2. На любом edge-сервере копируется `docker-compose.edge.yml`, `edge_awg/`, `edge_agent/` и `.env.edge`.
 3. В `.env.edge` задаются:
    - `CONTROL_PLANE_URL` — публичный или приватный URL главной ноды, доступный с edge-сервера.
    - `EDGE_PUBLIC_IP` — публичный IP edge-сервера.
    - `EDGE_AGENT_URL` — URL edge-agent, доступный с главной ноды. Можно оставить `auto`, тогда будет опубликовано `http://EDGE_PUBLIC_IP:EDGE_AGENT_PORT`.
    - `EDGE_SHARED_SECRET` — общий секрет регистрации, совпадает с control-plane.
+   - `AWG_PORT` — UDP-порт AmneziaWG, по умолчанию `51820`.
+   - `AWG_NET` — клиентская IPv4-сеть без последнего октета, по умолчанию `10.77.0`.
 4. После старта edge-agent сам регистрируется в control-plane через `/internal/nodes/register`.
 5. Control-plane видит ноду как healthy после heartbeat и начинает выбирать ее для новых устройств.
 
-Для production лучше закрыть порт `8081` firewall'ом так, чтобы к edge-agent могла ходить только главная нода. WireGuard UDP-порт `51820` должен быть доступен клиентам.
+Для production лучше закрыть порт `8081` firewall'ом так, чтобы к edge-agent могла ходить только главная нода. UDP-порт `AWG_PORT` должен быть доступен клиентам.
 
 ## Миграции Alembic
 
@@ -127,5 +132,6 @@ docker compose -f docker-compose.control.yml exec api alembic upgrade head
 
 ## Важно для MVP
 
-- Edge-agent применяет peer lifecycle через `wg set` и дополнительно хранит локальное состояние для восстановления после рестарта.
+- Edge-agent применяет lifecycle AWG peers через `awg set`, хранит локальное состояние и читает usage через `awg show`.
+- Control-plane создает устройства по биллингу, вызывает edge-agent `POST /peers`, получает `.conf` и QR, сохраняет `.conf` зашифрованным и отдает его пользователю.
 - Для production нужно использовать HTTPS или приватную сеть между edge/control и ограничить доступ к edge-agent.

@@ -104,13 +104,13 @@ async def start_handler(message: Message) -> None:
 @router.message(F.text == "Инструкция")
 async def instruction_handler(message: Message) -> None:
     text = (
-        "1. Установите WireGuard:\n"
-        "- iOS: https://apps.apple.com/app/wireguard/id1441195209\n"
-        "- Android: https://play.google.com/store/apps/details?id=com.wireguard.android\n"
-        "- Windows/macOS: https://www.wireguard.com/install/\n\n"
+        "1. Установите AmneziaVPN или клиент с поддержкой AmneziaWG:\n"
+        "- iOS: https://apps.apple.com/app/amneziavpn/id1600529900\n"
+        "- Android: https://play.google.com/store/apps/details?id=org.amnezia.vpn\n"
+        "- Windows/macOS/Linux: https://amnezia.org\n\n"
         "2. В боте добавьте устройство.\n"
-        "3. Импортируйте .conf или QR в WireGuard.\n"
-        "4. Включите туннель."
+        "3. Импортируйте .conf или QR-код AmneziaWG.\n"
+        "4. Подключитесь."
     )
     await message.answer(text)
 
@@ -208,9 +208,9 @@ async def add_device_finish(message: Message, state: FSMContext) -> None:
     qr_bytes = base64.b64decode(created["qr_png_base64"])
     qr_file = BufferedInputFile(qr_bytes, filename=f"device-{created['device_id']}.png")
 
-    await message.answer_document(conf_file, caption="Конфиг WireGuard (.conf)")
-    await message.answer_photo(qr_file, caption="QR-код для импорта")
-    await message.answer("Импортируйте конфиг в WireGuard через файл или QR.")
+    await message.answer_document(conf_file, caption="Конфиг AmneziaWG (.conf)")
+    await message.answer_photo(qr_file, caption="QR-код AmneziaWG")
+    await message.answer("Импортируйте конфиг в AmneziaVPN через файл или QR.")
 
 
 @router.message(F.text == "Мои устройства")

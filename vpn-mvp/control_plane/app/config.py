@@ -20,11 +20,6 @@ class Settings(BaseSettings):
     allow_mock_payments: bool = False
 
     edge_shared_secret: str = 'dev-secret'
-    server_public_key: str = ''
-    wg_endpoint: str = 'vpn.example.com:51820'
-    wg_dns: str = '1.1.1.1'
-    wg_allowed_ips: str = '0.0.0.0/0,::/0'
-    wg_keepalive: int = 25
 
     fernet_key: str = ''
     node_heartbeat_timeout_sec: int = 120

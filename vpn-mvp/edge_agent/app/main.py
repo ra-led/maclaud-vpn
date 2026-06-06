@@ -1,11 +1,13 @@
 import asyncio
+import base64
 import logging
+import re
 import subprocess
 from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.config import get_settings
 from app.state import AgentState, PeerState, load_state, save_state
@@ -20,8 +22,7 @@ state: AgentState = load_state(STATE_FILE)
 
 class PeerCreateIn(BaseModel):
     device_id: int
-    public_key: str
-    vpn_ip: str
+    name: str = Field(default="", max_length=255)
 
 
 def ensure_internal_auth(x_edge_token: str | None) -> None:
@@ -31,70 +32,185 @@ def ensure_internal_auth(x_edge_token: str | None) -> None:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-def run_cmd(cmd: list[str]) -> str:
-    try:
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-        return result.stdout.strip()
-    except subprocess.CalledProcessError as exc:
-        raise HTTPException(status_code=500, detail=f"Command failed: {' '.join(cmd)} :: {exc.stderr.strip()}") from exc
-
-
-async def wait_wireguard_interface(timeout_sec: int = 30) -> None:
-    for _ in range(timeout_sec):
-        probe = subprocess.run(
-            ["wg", "show", settings.wireguard_interface],
-            capture_output=True,
-            text=True,
-        )
-        if probe.returncode == 0:
-            return
-        await asyncio.sleep(1)
-    raise RuntimeError(f"WireGuard interface {settings.wireguard_interface} is not ready")
-
-
-def peer_apply(peer: PeerState) -> None:
-    run_cmd(
-        [
-            "wg",
-            "set",
-            settings.wireguard_interface,
-            "peer",
-            peer.public_key,
-            "allowed-ips",
-            f"{peer.vpn_ip}/32",
-        ]
-    )
-
-
-def peer_remove(peer: PeerState) -> None:
-    run_cmd(
-        [
-            "wg",
-            "set",
-            settings.wireguard_interface,
-            "peer",
-            peer.public_key,
-            "remove",
-        ]
-    )
-
-
 def persist() -> None:
     save_state(STATE_FILE, state)
 
 
+def run_cmd(cmd: list[str], timeout: int = 30) -> str:
+    try:
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=timeout)
+        return result.stdout.strip()
+    except subprocess.CalledProcessError as exc:
+        raise HTTPException(status_code=500, detail=f"Command failed: {' '.join(cmd)} :: {exc.stderr.strip()}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(status_code=504, detail=f"Command timed out: {' '.join(cmd)}") from exc
+
+
+def slugify(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9._-]+", "-", value.lower()).strip("-")
+    return slug or "device"
+
+
+def client_name(device_id: int, raw_name: str) -> str:
+    return f"{slugify(raw_name)}-{device_id}"
+
+
+def conf_path(name: str) -> Path:
+    return Path(settings.awg_client_config_dir) / f"{name}.conf"
+
+
+def qr_path(name: str) -> Path:
+    return Path(settings.awg_qr_dir) / f"{name}.png"
+
+
+def parse_generator_output(output: str) -> tuple[str, str | None, str | None]:
+    vpn_ip = ""
+    conf = None
+    qr = None
+    for line in output.splitlines():
+        if line.startswith("IP:"):
+            vpn_ip = line.split(":", 1)[1].strip().removesuffix("/32")
+        elif line.startswith("Config:"):
+            conf = line.split(":", 1)[1].strip()
+        elif line.startswith("QR:"):
+            qr = line.split(":", 1)[1].strip()
+    return vpn_ip, conf, qr
+
+
+def read_peer_block(name: str) -> dict[str, str]:
+    server_conf = Path(settings.awg_server_conf)
+    if not server_conf.exists():
+        raise HTTPException(status_code=500, detail=f"AWG server config not found: {server_conf}")
+
+    lines = server_conf.read_text(encoding="utf-8").splitlines()
+    for idx, line in enumerate(lines):
+        if line.strip() != f"# {name}":
+            continue
+        block = {}
+        for block_line in lines[idx + 1 :]:
+            stripped = block_line.strip()
+            if stripped.startswith("# ") or stripped == "[Peer]":
+                if stripped.startswith("# "):
+                    break
+                continue
+            if not stripped:
+                continue
+            if "=" in stripped:
+                key, value = stripped.split("=", 1)
+                block[key.strip()] = value.strip()
+        if "PublicKey" not in block or "AllowedIPs" not in block:
+            raise HTTPException(status_code=500, detail=f"Incomplete AWG peer block for {name}")
+        return block
+    raise HTTPException(status_code=500, detail=f"AWG peer block not found for {name}")
+
+
+def remove_peer_block(name: str) -> None:
+    server_conf = Path(settings.awg_server_conf)
+    if not server_conf.exists():
+        return
+
+    lines = server_conf.read_text(encoding="utf-8").splitlines()
+    next_lines = []
+    idx = 0
+    while idx < len(lines):
+        if lines[idx].strip() == f"# {name}":
+            idx += 1
+            while idx < len(lines) and not lines[idx].strip().startswith("# "):
+                idx += 1
+            continue
+        next_lines.append(lines[idx])
+        idx += 1
+    server_conf.write_text("\n".join(next_lines).rstrip() + "\n", encoding="utf-8")
+
+
+def awg_remove_peer(public_key: str) -> None:
+    if public_key:
+        subprocess.run(["awg", "set", settings.awg_interface, "peer", public_key, "remove"], capture_output=True, text=True)
+
+
+def awg_apply_peer(peer: PeerState) -> None:
+    block = read_peer_block(peer.name)
+    psk = block.get("PresharedKey", "")
+    allowed_ips = block["AllowedIPs"]
+    cmd = ["awg", "set", settings.awg_interface, "peer", peer.public_key, "allowed-ips", allowed_ips]
+    if psk:
+        psk_path = Path("/tmp") / f"awg-psk-{peer.device_id}"
+        psk_path.write_text(psk, encoding="utf-8")
+        try:
+            cmd = ["awg", "set", settings.awg_interface, "peer", peer.public_key, "preshared-key", str(psk_path), "allowed-ips", allowed_ips]
+            run_cmd(cmd)
+        finally:
+            psk_path.unlink(missing_ok=True)
+    else:
+        run_cmd(cmd)
+
+
+def create_awg_peer(device_id: int, raw_name: str) -> tuple[PeerState, str, str]:
+    name = client_name(device_id, raw_name)
+    existing = state.peers.get(device_id)
+    if existing:
+        delete_awg_peer(existing)
+
+    output = run_cmd([settings.awg_generator_cmd, name], timeout=60)
+    vpn_ip, generated_conf, generated_qr = parse_generator_output(output)
+    cfg_path = Path(generated_conf) if generated_conf else conf_path(name)
+    png_path = Path(generated_qr) if generated_qr else qr_path(name)
+    if not cfg_path.exists() or not png_path.exists():
+        raise HTTPException(status_code=500, detail=f"AWG generator did not create expected files for {name}")
+
+    block = read_peer_block(name)
+    vpn_ip = vpn_ip or block["AllowedIPs"].removesuffix("/32")
+    peer = PeerState(
+        device_id=device_id,
+        name=name,
+        public_key=block["PublicKey"],
+        vpn_ip=vpn_ip,
+        conf_path=str(cfg_path),
+        qr_path=str(png_path),
+        status="active",
+    )
+    return peer, cfg_path.read_text(encoding="utf-8"), base64.b64encode(png_path.read_bytes()).decode()
+
+
+def delete_awg_peer(peer: PeerState) -> None:
+    awg_remove_peer(peer.public_key)
+    remove_peer_block(peer.name)
+    if peer.conf_path:
+        Path(peer.conf_path).unlink(missing_ok=True)
+    if peer.qr_path:
+        Path(peer.qr_path).unlink(missing_ok=True)
+
+
 def parse_transfer() -> dict[str, tuple[int, int]]:
-    output = run_cmd(["wg", "show", settings.wireguard_interface, "transfer"])
+    output = run_cmd(["awg", "show", settings.awg_interface, "transfer"])
     if not output:
         return {}
-    result: dict[str, tuple[int, int]] = {}
+    result = {}
     for line in output.splitlines():
         parts = line.split()
-        if len(parts) != 3:
-            continue
-        pub_key, rx, tx = parts
-        result[pub_key] = (int(rx), int(tx))
+        if len(parts) == 3:
+            public_key, rx, tx = parts
+            result[public_key] = (int(rx), int(tx))
     return result
+
+
+async def wait_awg_interface(timeout_sec: int = 30) -> None:
+    for _ in range(timeout_sec):
+        probe = subprocess.run(["awg", "show", settings.awg_interface], capture_output=True, text=True)
+        if probe.returncode == 0:
+            return
+        await asyncio.sleep(1)
+    raise RuntimeError(f"AmneziaWG interface {settings.awg_interface} is not ready")
+
+
+def restore_active_peers() -> None:
+    for peer in state.peers.values():
+        if peer.status != "active":
+            continue
+        try:
+            awg_apply_peer(peer)
+        except HTTPException:
+            logging.exception("failed to restore active peer device_id=%s", peer.device_id)
 
 
 async def register_node() -> None:
@@ -117,13 +233,6 @@ async def register_node() -> None:
         state.token = data["token"]
     persist()
     logging.info("registered node id=%s", state.node_id)
-
-
-def restore_active_peers() -> None:
-    for peer in state.peers.values():
-        if peer.status == "active":
-            peer_apply(peer)
-    logging.info("restored active peers=%s", len([p for p in state.peers.values() if p.status == 'active']))
 
 
 async def heartbeat_loop() -> None:
@@ -154,22 +263,25 @@ async def heartbeat_loop() -> None:
             "disk_free_bytes": 10_000_000_000,
         }
         headers = {"X-Node-Token": state.token}
-        async with httpx.AsyncClient(timeout=15) as client:
-            await client.post(f"{settings.resolved_control_plane_url}/internal/nodes/heartbeat", json=payload, headers=headers)
-            if usage_rows:
-                await client.post(
-                    f"{settings.resolved_control_plane_url}/internal/nodes/usage",
-                    json={"usages": usage_rows},
-                    headers=headers,
-                )
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                await client.post(f"{settings.resolved_control_plane_url}/internal/nodes/heartbeat", json=payload, headers=headers)
+                if usage_rows:
+                    await client.post(
+                        f"{settings.resolved_control_plane_url}/internal/nodes/usage",
+                        json={"usages": usage_rows},
+                        headers=headers,
+                    )
+        except httpx.HTTPError:
+            logging.exception("heartbeat failed")
         await asyncio.sleep(30)
 
 
 @app.on_event("startup")
 async def startup_event() -> None:
-    await register_node()
-    await wait_wireguard_interface()
+    await wait_awg_interface()
     restore_active_peers()
+    await register_node()
     asyncio.create_task(heartbeat_loop())
 
 
@@ -181,17 +293,16 @@ def health() -> dict:
 @app.post("/peers")
 def create_peer(payload: PeerCreateIn, x_edge_token: str | None = Header(default=None)) -> dict:
     ensure_internal_auth(x_edge_token)
-    existing = state.peers.get(payload.device_id)
-    if existing:
-        try:
-            peer_remove(existing)
-        except HTTPException:
-            logging.warning("peer remove failed during update, device_id=%s", payload.device_id)
-    peer = PeerState(device_id=payload.device_id, public_key=payload.public_key, vpn_ip=payload.vpn_ip, status="active")
-    peer_apply(peer)
+    peer, conf_text, qr_png_base64 = create_awg_peer(payload.device_id, payload.name)
     state.peers[payload.device_id] = peer
     persist()
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "public_key": peer.public_key,
+        "vpn_ip": peer.vpn_ip,
+        "conf_text": conf_text,
+        "qr_png_base64": qr_png_base64,
+    }
 
 
 @app.delete("/peers/{device_id}")
@@ -199,7 +310,7 @@ def delete_peer(device_id: int, x_edge_token: str | None = Header(default=None))
     ensure_internal_auth(x_edge_token)
     peer = state.peers.pop(device_id, None)
     if peer:
-        peer_remove(peer)
+        delete_awg_peer(peer)
         persist()
     return {"status": "ok"}
 
@@ -209,7 +320,7 @@ def suspend_peer(device_id: int, x_edge_token: str | None = Header(default=None)
     ensure_internal_auth(x_edge_token)
     peer = state.peers.get(device_id)
     if peer and peer.status == "active":
-        peer_remove(peer)
+        awg_remove_peer(peer.public_key)
         peer.status = "suspended"
         persist()
     return {"status": "ok"}
@@ -220,7 +331,7 @@ def resume_peer(device_id: int, x_edge_token: str | None = Header(default=None))
     ensure_internal_auth(x_edge_token)
     peer = state.peers.get(device_id)
     if peer and peer.status != "active":
-        peer_apply(peer)
+        awg_apply_peer(peer)
         peer.status = "active"
         persist()
     return {"status": "ok"}

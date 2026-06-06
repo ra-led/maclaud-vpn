@@ -208,7 +208,7 @@ def create_device(
         device_id=device.id,
         node_id=device.node_id,
         conf_text=created["conf_text"],
-        conf_filename=f"device-{device.id}.conf",
+        conf_filename=f"device-{device.id}-amneziawg.conf",
         qr_png_base64=created["qr_png_base64"],
     )
 
@@ -229,7 +229,7 @@ def regenerate_config(
         device_id=device.id,
         node_id=device.node_id,
         conf_text=generated["conf_text"],
-        conf_filename=f"device-{device.id}.conf",
+        conf_filename=f"device-{device.id}-amneziawg.conf",
         qr_png_base64=generated["qr_png_base64"],
     )
 
@@ -649,11 +649,10 @@ def download_config(
         raise HTTPException(status_code=404, detail="Device not found")
 
     from app.services import get_device_private_key
-    from app.wireguard import build_client_conf
 
-    conf = build_client_conf(get_device_private_key(device), device.vpn_ip)
+    conf = get_device_private_key(device)
     return Response(
         content=conf,
         media_type="text/plain",
-        headers={"Content-Disposition": f"attachment; filename=device-{device.id}.conf"},
+        headers={"Content-Disposition": f"attachment; filename=device-{device.id}-amneziawg.conf"},
     )

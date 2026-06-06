@@ -6,8 +6,11 @@ from pathlib import Path
 @dataclass
 class PeerState:
     device_id: int
+    name: str
     public_key: str
     vpn_ip: str
+    conf_path: str
+    qr_path: str
     status: str = "active"
 
 
@@ -22,15 +25,19 @@ def load_state(path: Path) -> AgentState:
     if not path.exists():
         return AgentState()
     raw = json.loads(path.read_text(encoding="utf-8"))
-    peers = {
-        int(k): PeerState(
-            device_id=int(v["device_id"]),
-            public_key=v["public_key"],
-            vpn_ip=v["vpn_ip"],
+    raw_peers = raw.get("peers", raw.get("access_keys", {}))
+    peers = {}
+    for k, v in raw_peers.items():
+        device_id = int(v["device_id"])
+        peers[int(k)] = PeerState(
+            device_id=device_id,
+            name=v.get("name", f"device-{device_id}"),
+            public_key=v.get("public_key", v.get("access_key_id", "")),
+            vpn_ip=v.get("vpn_ip", ""),
+            conf_path=v.get("conf_path", ""),
+            qr_path=v.get("qr_path", ""),
             status=v.get("status", "active"),
         )
-        for k, v in raw.get("peers", {}).items()
-    }
     return AgentState(node_id=raw.get("node_id"), token=raw.get("token"), peers=peers)
 
 

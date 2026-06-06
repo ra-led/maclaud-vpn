@@ -1,19 +1,28 @@
 services:
-  wireguard:
-    image: linuxserver/wireguard:latest
+  awg:
+    build: ./edge_awg
+    env_file:
+      - .env.edge
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=UTC
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv6.conf.all.forwarding=1
     volumes:
-      - wireguard_data:/config
+      - awg_config:/etc/amnezia/amneziawg
+      - awg_wireguard_compat:/etc/wireguard
+      - awg_client_configs:/root/vpn-configs
+      - awg_runtime:/var/run/wireguard
+      - awg_amnezia_runtime:/run/amneziawg
       - /lib/modules:/lib/modules:ro
     ports:
-      - "51820:51820/udp"
+      - "${AWG_PORT:-51820}:${AWG_PORT:-51820}/udp"
       - "8081:8081"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     logging:
       driver: json-file
@@ -25,15 +34,18 @@ services:
     build: ./edge_agent
     env_file:
       - .env.edge
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     cap_add:
       - NET_ADMIN
     volumes:
       - edge_agent_state:/var/lib/edge-agent
+      - awg_config:/etc/amnezia/amneziawg
+      - awg_wireguard_compat:/etc/wireguard
+      - awg_client_configs:/root/vpn-configs
+      - awg_runtime:/var/run/wireguard
+      - awg_amnezia_runtime:/run/amneziawg
     depends_on:
-      - wireguard
-    network_mode: "service:wireguard"
+      - awg
+    network_mode: "service:awg"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
@@ -47,5 +59,9 @@ services:
         max-file: "3"
 
 volumes:
-  wireguard_data:
+  awg_config:
+  awg_wireguard_compat:
+  awg_client_configs:
+  awg_runtime:
+  awg_amnezia_runtime:
   edge_agent_state:

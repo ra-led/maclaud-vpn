@@ -116,8 +116,7 @@ class NodeUsageIn(BaseModel):
 
 class PeerCreateIn(BaseModel):
     device_id: int
-    public_key: str
-    vpn_ip: str
+    name: str = ""
 
 
 class AdminBanIn(BaseModel):

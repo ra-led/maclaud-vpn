@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 const STORAGE_PROFILE_KEY = 'vpngo_profile';
 const STORAGE_CUSTOMER_KEY = 'vpngo_customer_id';
-const DAILY_PRICE_RUB = 3;
+const DAILY_PRICE_RUB = 2;
 
 const previewDevices = [
   { name: 'iPhone', location: 'Москва', status: 'Активен', traffic: '12.4 ГБ' },
@@ -406,7 +406,7 @@ export default function VPNLandingPage() {
                 VPN-GO
               </h1>
               <p className="mt-6 text-2xl font-black leading-tight text-slate-900 sm:text-3xl">
-                Быстрый VPN с оплатой по балансу: 3 ₽ в сутки.
+                Быстрый VPN с оплатой по балансу: 2 ₽ в сутки.
               </p>
               <p className="mt-6 max-w-xl text-lg leading-8 text-slate-600">
                 Зарегистрируйтесь, пополните баланс в личном кабинете и подключайте
@@ -430,7 +430,7 @@ export default function VPNLandingPage() {
 
               <div className="mt-10 grid gap-3 sm:grid-cols-3">
                 {[
-                  ['3 ₽', 'сутки доступа'],
+                  ['2 ₽', 'сутки доступа'],
                   ['WireGuard', 'официальный клиент'],
                   ['Баланс', 'пополнение в ЛК']
                 ].map(([value, label]) => (
@@ -453,13 +453,13 @@ export default function VPNLandingPage() {
                       <div className="mt-1 text-2xl font-black">486 ₽ на балансе</div>
                     </div>
                     <div className="rounded-lg bg-lime-400 px-3 py-2 text-sm font-black">
-                      162 дня
+                      243 дня
                     </div>
                   </div>
                   <div className="mt-5 grid gap-4 sm:grid-cols-2">
                     <div className="rounded-lg bg-[#f7f8fb] p-4">
                       <div className="text-sm text-slate-500">Цена</div>
-                      <div className="mt-2 text-3xl font-black">3 ₽/сутки</div>
+                      <div className="mt-2 text-3xl font-black">2 ₽/сутки</div>
                     </div>
                     <div className="rounded-lg bg-[#f7f8fb] p-4">
                       <div className="text-sm text-slate-500">Устройства</div>
@@ -494,7 +494,7 @@ export default function VPNLandingPage() {
               </h2>
               <p className="mt-4 max-w-xl text-lg leading-8 text-slate-600">
                 Никаких пакетов и сложных условий. Вы пополняете баланс, а сервис
-                списывает 3 ₽ в сутки за активный доступ.
+                списывает 2 ₽ в сутки за активный доступ.
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-3">
@@ -555,7 +555,7 @@ export default function VPNLandingPage() {
                 <div className="text-sm text-slate-400">Баланс</div>
                 <div className="mt-2 text-4xl font-black">486 ₽</div>
                 <div className="mt-3 text-sm text-slate-300">
-                  3 ₽/сутки, хватит примерно на 162 дня
+                  2 ₽/сутки, хватит примерно на 243 дня
                 </div>
                 <button
                   disabled

@@ -10,7 +10,7 @@ from app.config import get_settings
 from app.models import BillingEvent, Device, DeviceStatus, DeviceUsageDaily, Node, NodeStatus, Payment, PaymentStatus, User, UserStatus
 from app.security import decrypt_secret, encrypt_secret
 from app.task_queue import enqueue_edge_command
-from app.wireguard import build_client_conf, conf_to_qr_base64, generate_client_keys, pick_next_vpn_ip
+from app.awg import new_pending_secret, normalize_client_conf
 
 
 settings = get_settings()
@@ -68,13 +68,16 @@ def ensure_user_can_add_device(user: User) -> None:
         raise HTTPException(status_code=400, detail='Insufficient balance to add a device')
 
 
-def push_peer_command(node: Node, method: str, path: str, payload: dict | None = None) -> None:
+def push_peer_command(node: Node, method: str, path: str, payload: dict | None = None) -> dict:
     url = f'{node.api_url}{path}'
     headers = {'X-Edge-Token': node.token}
     with httpx.Client(timeout=10.0) as client:
         response = client.request(method=method, url=url, headers=headers, json=payload)
     if response.status_code >= 300:
         raise HTTPException(status_code=502, detail=f'Edge node command failed: {response.text}')
+    if response.content:
+        return response.json()
+    return {}
 
 
 def queue_peer_command(
@@ -97,63 +100,62 @@ def create_device_for_user(db: Session, user: User, name: str) -> dict:
     ensure_user_can_add_device(user)
     node = choose_node(db)
 
-    used_ips = set(db.scalars(select(Device.vpn_ip).where(Device.status != DeviceStatus.deleted)).all())
-    vpn_ip = pick_next_vpn_ip(used_ips)
-    keys = generate_client_keys()
-    encrypted_private_key = encrypt_secret(keys.private_key)
+    pending_secret = new_pending_secret()
 
     device = Device(
         user_id=user.id,
         node_id=node.id,
         name=name,
-        vpn_ip=vpn_ip,
-        public_key=keys.public_key,
-        private_key_encrypted=encrypted_private_key,
+        vpn_ip=f'awg-pending-{pending_secret}',
+        public_key=f'awg-pending-{pending_secret}',
+        private_key_encrypted=encrypt_secret(pending_secret),
         status=DeviceStatus.active,
     )
     db.add(device)
     db.flush()
 
     try:
-        push_peer_command(
+        edge_result = push_peer_command(
             node,
             method='POST',
             path='/peers',
-            payload={'device_id': device.id, 'public_key': device.public_key, 'vpn_ip': device.vpn_ip},
+            payload={'device_id': device.id, 'name': device.name},
         )
     except Exception:
         db.rollback()
         raise
 
+    conf_text = normalize_client_conf(edge_result['conf_text'])
+    device.vpn_ip = edge_result['vpn_ip']
+    device.public_key = edge_result['public_key']
+    device.private_key_encrypted = encrypt_secret(conf_text)
     node.active_clients = (node.active_clients or 0) + 1
     db.commit()
     db.refresh(device)
 
-    conf_text = build_client_conf(private_key=keys.private_key, vpn_ip=device.vpn_ip)
     return {
         'device': device,
         'conf_text': conf_text,
-        'qr_png_base64': conf_to_qr_base64(conf_text),
+        'qr_png_base64': edge_result['qr_png_base64'],
     }
 
 
 def regenerate_device_config(db: Session, device: Device) -> dict:
-    keys = generate_client_keys()
-
-    push_peer_command(
+    edge_result = push_peer_command(
         device.node,
         method='POST',
         path='/peers',
-        payload={'device_id': device.id, 'public_key': keys.public_key, 'vpn_ip': device.vpn_ip},
+        payload={'device_id': device.id, 'name': device.name},
     )
 
-    device.public_key = keys.public_key
-    device.private_key_encrypted = encrypt_secret(keys.private_key)
+    conf_text = normalize_client_conf(edge_result['conf_text'])
+    device.vpn_ip = edge_result['vpn_ip']
+    device.public_key = edge_result['public_key']
+    device.private_key_encrypted = encrypt_secret(conf_text)
     db.commit()
     db.refresh(device)
 
-    conf_text = build_client_conf(private_key=keys.private_key, vpn_ip=device.vpn_ip)
-    return {'conf_text': conf_text, 'qr_png_base64': conf_to_qr_base64(conf_text)}
+    return {'conf_text': conf_text, 'qr_png_base64': edge_result['qr_png_base64']}
 
 
 def delete_device(db: Session, device: Device) -> None:
