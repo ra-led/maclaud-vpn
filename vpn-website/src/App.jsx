@@ -112,6 +112,12 @@ export default function VPNLandingPage() {
   const [authError, setAuthError] = useState('');
   const [authStatus, setAuthStatus] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [passwordAuthVisible, setPasswordAuthVisible] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ login: '', password: '' });
+  const [passwordAuthError, setPasswordAuthError] = useState('');
+  const [passwordCanCreate, setPasswordCanCreate] = useState(false);
+  const [isPasswordSubmitting, setIsPasswordSubmitting] = useState(false);
+  const [passwordBackup, setPasswordBackup] = useState(null);
   const [dashboard, setDashboard] = useState(null);
   const [isLoadingAccount, setIsLoadingAccount] = useState(false);
   const [accountError, setAccountError] = useState('');
@@ -212,6 +218,14 @@ export default function VPNLandingPage() {
     await loadAccount(nextProfile, nextCustomerId);
   }
 
+  function openPasswordFallback(message = '') {
+    setAuthError('');
+    setAuthStatus('');
+    setPasswordAuthError(message);
+    setPasswordCanCreate(false);
+    setPasswordAuthVisible(true);
+  }
+
   async function loginWithPasskey() {
     setPaymentError('');
     setAuthError('');
@@ -228,7 +242,7 @@ export default function VPNLandingPage() {
 
       setAuthStatus('Ожидаем подтверждение на устройстве');
       if (!browserSupportsWebAuthn()) {
-        setAuthError('Этот браузер не поддерживает вход через passkey');
+        openPasswordFallback('Этот браузер не поддерживает passkey. Войдите через логин и пароль.');
         return;
       }
 
@@ -267,11 +281,73 @@ export default function VPNLandingPage() {
         }).then(readJson);
         await finishPasskeySession(registeredSession);
       } catch (registrationError) {
-        setAuthError(userMessage(registrationError, 'Не удалось войти через passkey'));
+        openPasswordFallback(userMessage(registrationError, 'Не удалось войти через passkey'));
       }
     } finally {
       setIsAuthenticating(false);
       setAuthStatus('');
+    }
+  }
+
+  async function submitPasswordLogin(event) {
+    event.preventDefault();
+    const login = passwordForm.login.trim().toLowerCase();
+    const password = passwordForm.password;
+    setPasswordAuthError('');
+    setPasswordCanCreate(false);
+    setIsPasswordSubmitting(true);
+
+    try {
+      const session = await fetch('/api/password-auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ login, password })
+      }).then(readJson);
+
+      if (session.matched) {
+        setPasswordAuthVisible(false);
+        setPasswordForm({ login: '', password: '' });
+        await finishPasskeySession(session);
+        return;
+      }
+
+      if (session.can_create) {
+        setPasswordCanCreate(true);
+        setPasswordAuthError('Аккаунт с таким логином не найден. Можно создать новый аккаунт с этим логином и паролем.');
+      }
+    } catch (error) {
+      setPasswordAuthError(userMessage(error, 'Не удалось войти по логину и паролю'));
+    } finally {
+      setIsPasswordSubmitting(false);
+    }
+  }
+
+  async function createPasswordAccount() {
+    const login = passwordForm.login.trim().toLowerCase();
+    const password = passwordForm.password;
+    setPasswordAuthError('');
+    setIsPasswordSubmitting(true);
+
+    try {
+      const session = await fetch('/api/password-auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          login,
+          password,
+          user_id: createCustomerId()
+        })
+      }).then(readJson);
+
+      setPasswordAuthVisible(false);
+      setPasswordBackup({ login, password });
+      setPasswordForm({ login: '', password: '' });
+      setPasswordCanCreate(false);
+      await finishPasskeySession(session);
+    } catch (error) {
+      setPasswordAuthError(userMessage(error, 'Не удалось создать аккаунт'));
+    } finally {
+      setIsPasswordSubmitting(false);
     }
   }
 
@@ -282,6 +358,7 @@ export default function VPNLandingPage() {
     setCustomerId('');
     setDashboard(null);
     setCreatedConfig(null);
+    setPasswordBackup(null);
   }
 
   async function createPayment() {
@@ -399,6 +476,128 @@ export default function VPNLandingPage() {
     link.click();
     URL.revokeObjectURL(url);
   }
+
+  const passwordBackupText = passwordBackup
+    ? [
+        'VPN-GO доступ',
+        '',
+        `Логин: ${passwordBackup.login}`,
+        `Пароль: ${passwordBackup.password}`,
+        '',
+        'Сохраните этот файл. Мы не храним персональные данные для восстановления доступа, поэтому если забыть логин или пароль, восстановить их не получится.'
+      ].join('\n')
+    : '';
+  const passwordBackupHref = passwordBackup
+    ? `data:text/plain;charset=utf-8,${encodeURIComponent(passwordBackupText)}`
+    : '#';
+
+  const passwordFallbackModal = passwordAuthVisible && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-8">
+      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-2xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-black">Вход по логину</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Используйте этот способ, если passkey недоступен на устройстве.
+            </p>
+          </div>
+          <button
+            onClick={() => setPasswordAuthVisible(false)}
+            className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-black"
+            aria-label="Закрыть"
+          >
+            x
+          </button>
+        </div>
+
+        <form onSubmit={submitPasswordLogin} className="mt-6 grid gap-4">
+          <div>
+            <label className="text-sm font-bold text-slate-700">Логин</label>
+            <input
+              value={passwordForm.login}
+              onChange={(event) => {
+                setPasswordForm((current) => ({ ...current, login: event.target.value }));
+                setPasswordCanCreate(false);
+              }}
+              autoCapitalize="none"
+              autoComplete="username"
+              className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-slate-950"
+              placeholder="my-login"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-bold text-slate-700">Пароль</label>
+            <input
+              value={passwordForm.password}
+              onChange={(event) => {
+                setPasswordForm((current) => ({ ...current, password: event.target.value }));
+                setPasswordCanCreate(false);
+              }}
+              type="password"
+              autoComplete="current-password"
+              className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-slate-950"
+              placeholder="Минимум 8 символов"
+            />
+          </div>
+
+          {passwordAuthError && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              {passwordAuthError}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={isPasswordSubmitting}
+            className="rounded-lg bg-slate-950 px-5 py-4 font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {isPasswordSubmitting ? 'Проверяем...' : 'Войти'}
+          </button>
+
+          {passwordCanCreate && (
+            <button
+              type="button"
+              onClick={createPasswordAccount}
+              disabled={isPasswordSubmitting}
+              className="rounded-lg bg-lime-400 px-5 py-4 font-black text-slate-950 transition hover:bg-lime-300 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              Создать такой аккаунт
+            </button>
+          )}
+        </form>
+      </div>
+    </div>
+  );
+
+  const passwordBackupModal = passwordBackup && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-8">
+      <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-2xl">
+        <h2 className="text-2xl font-black">Сохраните логин и пароль</h2>
+        <p className="mt-3 text-sm leading-6 text-slate-600">
+          Мы не храним персональные данные для восстановления доступа. Если забыть логин или пароль,
+          восстановить их не получится, поэтому лучше сохранить файл сейчас.
+        </p>
+        <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          Логин: <span className="font-bold">{passwordBackup.login}</span>
+        </div>
+        <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+          <a
+            href={passwordBackupHref}
+            download="vpn-go-login-password.txt"
+            className="rounded-lg bg-lime-400 px-5 py-4 text-center font-black text-slate-950 transition hover:bg-lime-300"
+          >
+            Скачать .txt
+          </a>
+          <button
+            onClick={() => setPasswordBackup(null)}
+            className="rounded-lg border border-slate-300 px-5 py-4 font-black text-slate-700 transition hover:border-slate-500"
+          >
+            Я сохранил
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 
   if (profile) {
     const balance = dashboard?.balance;
@@ -690,6 +889,8 @@ export default function VPNLandingPage() {
             </div>
           </section>
         </main>
+        {passwordFallbackModal}
+        {passwordBackupModal}
       </div>
     );
   }
@@ -815,6 +1016,7 @@ export default function VPNLandingPage() {
           <div className="text-slate-500">© 2026 VPN-GO</div>
         </div>
       </footer>
+      {passwordFallbackModal}
     </div>
   );
 }

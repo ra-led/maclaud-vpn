@@ -50,6 +50,9 @@ app.use(
   })
 );
 
+const PASSWORD_HASH_KEYLEN = 64;
+const PASSWORD_HASH_COST = 16384;
+
 const YOOKASSA_WEBHOOK_CIDRS = [
   '185.71.76.0/27',
   '185.71.77.0/27',
@@ -423,6 +426,54 @@ function normalizeDisplayName(value) {
   return trimmed || 'Пользователь VPN-GO';
 }
 
+function normalizePasswordLogin(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  return value.trim().toLowerCase();
+}
+
+function validatePasswordCredentials({ login, password }) {
+  if (!/^[a-z0-9._-]{3,64}$/.test(login)) {
+    return 'Логин: 3-64 символа, латиница, цифры, точка, дефис или подчеркивание';
+  }
+  if (typeof password !== 'string' || password.length < 8 || password.length > 128) {
+    return 'Пароль должен быть от 8 до 128 символов';
+  }
+  return null;
+}
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('base64url');
+  const derived = crypto.scryptSync(password, salt, PASSWORD_HASH_KEYLEN, {
+    N: PASSWORD_HASH_COST
+  });
+  return `scrypt$${PASSWORD_HASH_COST}$${salt}$${derived.toString('base64url')}`;
+}
+
+function verifyPassword(password, storedHash) {
+  const [scheme, costRaw, salt, hash] = String(storedHash || '').split('$');
+  if (scheme !== 'scrypt' || !salt || !hash) {
+    return false;
+  }
+
+  const cost = Number(costRaw);
+  if (!Number.isSafeInteger(cost) || cost <= 0) {
+    return false;
+  }
+
+  const expected = Buffer.from(hash, 'base64url');
+  const actual = crypto.scryptSync(password, salt, expected.length, { N: cost });
+  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+}
+
+function passwordProfile(login) {
+  return {
+    name: login,
+    email: ''
+  };
+}
+
 async function savePasskeyChallenge({ type, challenge, userId = null }) {
   const challengeId = crypto.randomUUID();
   await pool.query(
@@ -508,6 +559,111 @@ app.post('/api/session/by-ip', async (req, res) => {
     }
     console.error('ip session lookup failed', { message: error instanceof Error ? error.message : String(error) });
     return sendApiError(res, error, 'Failed to look up VPN device by IP');
+  }
+});
+
+app.post('/api/password-auth/login', async (req, res) => {
+  const login = normalizePasswordLogin(req.body?.login);
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  const validationError = validatePasswordCredentials({ login, password });
+  if (validationError) {
+    return res.status(400).json({ error: validationError });
+  }
+
+  try {
+    const result = await pool.query(
+      'SELECT * FROM password_accounts WHERE login = $1 LIMIT 1',
+      [login]
+    );
+    const account = result.rows[0];
+    if (!account) {
+      return res.json({ matched: false, can_create: true, login });
+    }
+
+    if (!verifyPassword(password, account.password_hash)) {
+      return res.status(401).json({ error: 'Неверный логин или пароль' });
+    }
+
+    await pool.query(
+      `
+        UPDATE password_accounts
+        SET last_login_at = NOW()
+        WHERE login = $1
+      `,
+      [login]
+    );
+    await pool.query(
+      'UPDATE passkey_accounts SET last_login_at = NOW() WHERE user_id = $1',
+      [account.user_id]
+    );
+
+    return res.json({
+      matched: true,
+      user_id: account.user_id,
+      profile: passwordProfile(login)
+    });
+  } catch (error) {
+    console.error('password login failed', { message: error instanceof Error ? error.message : String(error) });
+    return sendApiError(res, error, 'Failed to log in with password');
+  }
+});
+
+app.post('/api/password-auth/register', async (req, res) => {
+  const login = normalizePasswordLogin(req.body?.login);
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  const validationError = validatePasswordCredentials({ login, password });
+  if (validationError) {
+    return res.status(400).json({ error: validationError });
+  }
+
+  const userId = String(parseControlPlaneAccountId(req.body?.user_id) || createControlPlaneAccountId());
+  let client = null;
+
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await client.query(
+      `
+        INSERT INTO passkey_accounts (user_id, display_name)
+        VALUES ($1, $2)
+        ON CONFLICT (user_id)
+        DO UPDATE SET display_name = EXCLUDED.display_name
+      `,
+      [userId, login]
+    );
+    await client.query(
+      `
+        INSERT INTO password_accounts (login, user_id, password_hash)
+        VALUES ($1, $2, $3)
+      `,
+      [login, userId, hashPassword(password)]
+    );
+    await client.query('COMMIT');
+
+    await controlPlaneRequest({
+      method: 'POST',
+      path: '/v1/users',
+      body: {
+        telegram_id: Number(userId),
+        username: login,
+        first_name: login
+      }
+    });
+
+    return res.json({
+      created: true,
+      user_id: userId,
+      profile: passwordProfile(login)
+    });
+  } catch (error) {
+    await client?.query('ROLLBACK').catch(() => {});
+    if (error?.code === '23505') {
+      return res.status(409).json({ error: 'Такой логин уже занят' });
+    }
+    console.error('password registration failed', { message: error instanceof Error ? error.message : String(error) });
+    return sendApiError(res, error, 'Failed to create password account');
+  } finally {
+    client?.release();
   }
 });
 

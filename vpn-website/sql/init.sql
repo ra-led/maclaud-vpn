@@ -77,3 +77,14 @@ CREATE TABLE IF NOT EXISTS passkey_challenges (
 
 CREATE INDEX IF NOT EXISTS ix_passkey_challenges_expires_at
   ON passkey_challenges (expires_at);
+
+CREATE TABLE IF NOT EXISTS password_accounts (
+  login TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES passkey_accounts(user_id) ON DELETE CASCADE,
+  password_hash TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_login_at TIMESTAMPTZ NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_password_accounts_user_id
+  ON password_accounts (user_id);
