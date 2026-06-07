@@ -25,6 +25,10 @@ body,
   filter: drop-shadow(0 0 0.35rem rgba(245, 158, 11, 0.25));
 }
 
+.hero-benefit-text {
+  animation: hero-benefit-in 520ms ease both;
+}
+
 @keyframes dark-rainbow-shift {
   0%,
   100% {
@@ -33,5 +37,17 @@ body,
 
   50% {
     background-position: 160% 50%, 100% 50%;
+  }
+}
+
+@keyframes hero-benefit-in {
+  0% {
+    opacity: 0;
+    transform: translateY(0.45rem);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
   }
 }

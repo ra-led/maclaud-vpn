@@ -15,6 +15,13 @@ const appDownloadLinks = [
   { label: 'Android', mark: 'And', href: 'https://play.google.com/store/apps/details?id=org.amnezia.awg' }
 ];
 
+const heroBenefits = [
+  'Дешевле, чем собственный сервер',
+  'Повышенная конфиденциальность',
+  'Оплата только за дни использования',
+  'Конфиги для всех устройств'
+];
+
 function getStoredProfile() {
   try {
     const raw = window.localStorage.getItem(STORAGE_PROFILE_KEY);
@@ -198,6 +205,7 @@ export default function VPNLandingPage() {
   const [loadingConfigDeviceId, setLoadingConfigDeviceId] = useState(null);
   const [deviceError, setDeviceError] = useState('');
   const [createdConfig, setCreatedConfig] = useState(null);
+  const [heroBenefitIndex, setHeroBenefitIndex] = useState(0);
 
   if (window.location.pathname === '/agreement') {
     return (
@@ -270,6 +278,14 @@ export default function VPNLandingPage() {
       openLoginConsent();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setHeroBenefitIndex((current) => (current + 1) % heroBenefits.length);
+    }, 3200);
+
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -1217,16 +1233,24 @@ export default function VPNLandingPage() {
               <p className="mt-6 max-w-xl text-lg leading-8 text-slate-600">
                 Зарегистрируйтесь, пополните баланс в личном кабинете и подключайте устройства через AmneziaWG.
               </p>
-              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <div className="mt-8 grid gap-3 sm:grid-cols-[minmax(18rem,24rem)_auto] sm:items-center">
+                <div className="flex min-h-12 items-center text-sm font-black uppercase leading-5 text-slate-700 sm:h-14">
+                  <span
+                    key={heroBenefits[heroBenefitIndex]}
+                    className="hero-benefit-text block max-w-full"
+                  >
+                    {heroBenefits[heroBenefitIndex]}
+                  </span>
+                </div>
                 <button
                   onClick={openLoginConsent}
                   disabled={isAuthenticating}
-                  className="inline-flex items-center justify-center gap-3 rounded-lg bg-lime-400 px-6 py-4 text-base font-black text-slate-950 transition hover:bg-lime-300 disabled:cursor-not-allowed disabled:opacity-70"
+                  className="inline-flex h-14 items-center justify-center gap-3 rounded-lg bg-lime-400 px-6 text-base font-black text-slate-950 transition hover:bg-lime-300 disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   {isAuthenticating && (
                     <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-950/30 border-t-slate-950" />
                   )}
-                  {isAuthenticating ? 'Открываем...' : 'Вход'}
+                  {isAuthenticating ? 'Открываем...' : 'Подключить'}
                 </button>
               </div>
               {authStatus && (
