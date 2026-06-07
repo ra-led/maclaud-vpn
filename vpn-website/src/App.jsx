@@ -12,6 +12,13 @@ const previewDevices = [
   { name: 'Планшет', location: 'Франкфурт', status: 'Пауза', traffic: '4.8 ГБ' }
 ];
 
+const appDownloadLinks = [
+  { label: 'Windows', mark: 'Win', href: 'https://amnezia.org/ru/downloads' },
+  { label: 'macOS', mark: 'mac', href: 'https://apps.apple.com/us/app/amneziawg/id6478942365?platform=mac' },
+  { label: 'iOS', mark: 'iOS', href: 'https://apps.apple.com/us/app/amneziawg/id6478942365' },
+  { label: 'Android', mark: 'And', href: 'https://play.google.com/store/apps/details?id=org.amnezia.awg' }
+];
+
 function getStoredProfile() {
   try {
     const raw = window.localStorage.getItem(STORAGE_PROFILE_KEY);
@@ -822,36 +829,60 @@ export default function VPNLandingPage() {
 
                         {isConfigOpen && (
                           <div className="border-t border-emerald-200 bg-emerald-50 px-4 py-5">
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                              <div>
-                                <h3 className="text-lg font-black text-emerald-950">
-                                  Конфиг для {device.name}
-                                </h3>
-                                <p className="mt-1 text-sm text-emerald-800">
-                                  Отсканируйте QR-код или скачайте файл для импорта в AmneziaWG/WireGuard-клиент.
-                                </p>
-                              </div>
-                              <button
-                                onClick={downloadConfig}
-                                className="rounded-lg bg-emerald-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-800"
-                              >
-                                Скачать конфиг
-                              </button>
-                            </div>
+                            <ol className="grid gap-5 text-sm text-emerald-950">
+                              <li className="grid gap-3 md:grid-cols-[2rem_1fr]">
+                                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-700 text-sm font-black text-white">
+                                  1
+                                </div>
+                                <div>
+                                  <div className="font-black">Скачайте приложение AmneziaWG</div>
+                                  <div className="mt-3 flex flex-wrap gap-2">
+                                    {appDownloadLinks.map((link) => (
+                                      <a
+                                        key={link.label}
+                                        href={link.href}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-black text-emerald-900 transition hover:border-emerald-400"
+                                      >
+                                        <span className="flex h-6 min-w-8 items-center justify-center rounded bg-emerald-100 px-1 text-[10px] text-emerald-800">
+                                          {link.mark}
+                                        </span>
+                                        {link.label}
+                                      </a>
+                                    ))}
+                                  </div>
+                                </div>
+                              </li>
 
-                            <div className="mt-5 grid gap-5 md:grid-cols-[auto_1fr] md:items-center">
-                              <div className="rounded-lg border border-emerald-200 bg-white p-4">
-                                <img
-                                  src={createdConfig.qrDataUrl}
-                                  alt="QR-код конфигурации VPN"
-                                  className="h-64 w-64 max-w-full"
-                                />
-                              </div>
-                              <div className="text-sm leading-7 text-emerald-900">
-                                <div className="font-bold">Файл: {createdConfig.conf_filename}</div>
-                                {createdConfig.vpn_ip && <div>VPN IP: {createdConfig.vpn_ip}</div>}
-                              </div>
-                            </div>
+                              <li className="grid gap-3 md:grid-cols-[2rem_1fr]">
+                                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-700 text-sm font-black text-white">
+                                  2
+                                </div>
+                                <div>
+                                  <div className="font-black">
+                                    Откройте приложение и отсканируйте QR или импортируйте файл .conf
+                                  </div>
+                                  <div className="mt-4 grid gap-4 md:grid-cols-[auto_1fr] md:items-center">
+                                    <div className="rounded-lg border border-emerald-200 bg-white p-3">
+                                      <img
+                                        src={createdConfig.qrDataUrl}
+                                        alt="QR-код конфигурации VPN"
+                                        className="h-56 w-56 max-w-full"
+                                      />
+                                    </div>
+                                    <div>
+                                      <button
+                                        onClick={downloadConfig}
+                                        className="rounded-lg bg-emerald-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-800"
+                                      >
+                                        Скачать .conf
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              </li>
+                            </ol>
                           </div>
                         )}
                       </div>
