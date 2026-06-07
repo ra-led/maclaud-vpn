@@ -874,13 +874,6 @@ export default function VPNLandingPage() {
             </a>
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
               <button
-                onClick={() => loadAccount()}
-                disabled={isLoadingAccount}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 sm:px-4"
-              >
-                Обновить
-              </button>
-              <button
                 onClick={logout}
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 sm:px-4"
               >
