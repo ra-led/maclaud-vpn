@@ -627,9 +627,11 @@ app.post('/api/passkeys/registration/options', async (req, res) => {
       userName: `vpn-go-${userId}`,
       userDisplayName: displayName,
       attestationType: 'none',
+      preferredAuthenticatorType: 'localDevice',
       authenticatorSelection: {
+        authenticatorAttachment: 'platform',
         residentKey: 'required',
-        userVerification: 'preferred'
+        userVerification: 'required'
       },
       excludeCredentials: existingCredentials.rows.map((credential) => ({
         id: credential.credential_id,
