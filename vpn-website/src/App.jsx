@@ -1052,15 +1052,15 @@ export default function VPNLandingPage() {
                       <div key={device.id} className="border-t border-slate-200 first:border-t-0">
                         <div
                           onClick={() => openDeviceConfig(device)}
-                          className={`grid min-w-0 cursor-pointer gap-2 px-4 py-4 text-sm transition md:grid-cols-[1fr_0.8fr_1.1fr] md:items-center ${
+                          className={`grid min-w-0 cursor-pointer gap-2 px-4 py-4 text-base transition md:grid-cols-[1fr_0.8fr_1.1fr] md:items-center ${
                             isConfigOpen ? 'bg-emerald-50 ring-1 ring-inset ring-emerald-200' : 'hover:bg-slate-50'
                           }`}
                         >
                           <div className="min-w-0">
-                            <div className="truncate font-bold">{device.name}</div>
-                            <div className="truncate text-xs text-slate-500">{device.vpn_ip}</div>
+                            <div className="truncate text-lg font-black leading-6">{device.name}</div>
+                            <div className="truncate text-sm text-slate-500">{device.vpn_ip}</div>
                           </div>
-                          <div className="font-semibold text-emerald-700">{statusLabel(device.status)}</div>
+                          <div className="font-bold text-emerald-700">{statusLabel(device.status)}</div>
                           <div className="flex flex-wrap gap-2">
                             <button
                               onClick={(event) => {
@@ -1168,15 +1168,15 @@ export default function VPNLandingPage() {
                   payments.map((payment) => (
                     <div
                       key={payment.payment_id}
-                      className="flex items-center justify-between rounded-lg border border-slate-200 px-4 py-3"
+                      className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2.5 text-sm"
                     >
                       <div>
-                        <div className="font-bold">{payment.order_id || payment.payment_id}</div>
-                        <div className="text-sm text-slate-500">{dateLabel(payment.created_at)}</div>
+                        <div className="font-normal text-slate-700">{payment.order_id || payment.payment_id}</div>
+                        <div className="text-xs text-slate-500">{dateLabel(payment.created_at)}</div>
                       </div>
                       <div className="text-right">
-                        <div className="font-black">{payment.amount_value} ₽</div>
-                        <div className={`text-sm ${paymentStatusClass(payment.status)}`}>{payment.status}</div>
+                        <div className="font-normal text-slate-700">{payment.amount_value} ₽</div>
+                        <div className={`text-xs font-normal ${paymentStatusClass(payment.status)}`}>{payment.status}</div>
                       </div>
                     </div>
                   ))
