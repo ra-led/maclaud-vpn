@@ -36,20 +36,6 @@ function formatRubFromKopecks(value) {
   return `${Math.floor((value || 0) / 100)} ₽`;
 }
 
-function formatBytes(value) {
-  if (!value) {
-    return '0 Б';
-  }
-  const units = ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ'];
-  let next = value;
-  let index = 0;
-  while (next >= 1024 && index < units.length - 1) {
-    next /= 1024;
-    index += 1;
-  }
-  return `${next.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
-}
-
 function dayLabel(days) {
   const mod10 = days % 10;
   const mod100 = days % 100;
@@ -69,6 +55,19 @@ function statusLabel(status) {
     banned: 'Заблокировано',
     deleted: 'Удалено'
   }[status] || status;
+}
+
+function paymentStatusClass(status) {
+  if (status === 'succeeded') {
+    return 'text-emerald-700';
+  }
+  if (status === 'pending' || status === 'waiting_for_capture') {
+    return 'text-amber-700';
+  }
+  if (status === 'canceled') {
+    return 'text-red-700';
+  }
+  return 'text-slate-500';
 }
 
 function dateLabel(value) {
@@ -566,11 +565,9 @@ export default function VPNLandingPage() {
                 <span className="text-sm font-semibold text-slate-500">{devices.length} активных</span>
               </div>
               <div className="mt-5 rounded-lg border border-slate-200">
-                <div className="hidden grid-cols-[1fr_1fr_0.75fr_0.8fr_1fr] bg-slate-50 px-4 py-3 text-xs font-bold uppercase text-slate-500 md:grid">
+                <div className="hidden grid-cols-[1fr_0.8fr_1.1fr] bg-slate-50 px-4 py-3 text-xs font-bold uppercase text-slate-500 md:grid">
                   <div>Устройство</div>
-                  <div>Нода</div>
                   <div>Статус</div>
-                  <div>Трафик</div>
                   <div>Конфиг</div>
                 </div>
                 {devices.length === 0 ? (
@@ -584,7 +581,7 @@ export default function VPNLandingPage() {
                       <div key={device.id} className="border-t border-slate-200 first:border-t-0">
                         <div
                           onClick={() => openDeviceConfig(device)}
-                          className={`grid cursor-pointer gap-2 px-4 py-4 text-sm transition md:grid-cols-[1fr_1fr_0.75fr_0.8fr_1fr] md:items-center ${
+                          className={`grid cursor-pointer gap-2 px-4 py-4 text-sm transition md:grid-cols-[1fr_0.8fr_1.1fr] md:items-center ${
                             isConfigOpen ? 'bg-emerald-50 ring-1 ring-inset ring-emerald-200' : 'hover:bg-slate-50'
                           }`}
                         >
@@ -592,14 +589,7 @@ export default function VPNLandingPage() {
                             <div className="font-bold">{device.name}</div>
                             <div className="text-xs text-slate-500">{device.vpn_ip}</div>
                           </div>
-                          <div className="text-slate-600">
-                            {device.node_name}
-                            {device.city ? `, ${device.city}` : ''}
-                          </div>
                           <div className="font-semibold text-emerald-700">{statusLabel(device.status)}</div>
-                          <div className="text-slate-600">
-                            {formatBytes((device.rx_bytes || 0) + (device.tx_bytes || 0))}
-                          </div>
                           <div className="flex flex-wrap gap-2">
                             <button
                               onClick={(event) => {
@@ -691,7 +681,7 @@ export default function VPNLandingPage() {
                       </div>
                       <div className="text-right">
                         <div className="font-black">{payment.amount_value} ₽</div>
-                        <div className="text-sm text-emerald-700">{payment.status}</div>
+                        <div className={`text-sm ${paymentStatusClass(payment.status)}`}>{payment.status}</div>
                       </div>
                     </div>
                   ))
