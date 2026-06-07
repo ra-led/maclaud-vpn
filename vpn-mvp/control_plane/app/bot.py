@@ -96,7 +96,7 @@ async def start_handler(message: Message) -> None:
         },
     )
     await message.answer(
-        "VPN бот готов к работе.\nСтоимость: 2 ₽/день за устройство.",
+        "VPN бот готов к работе.\nСтоимость: 5 ₽/день за устройство.",
         reply_markup=main_menu(),
     )
 

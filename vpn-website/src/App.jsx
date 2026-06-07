@@ -6,7 +6,7 @@ import { userAgreementText } from './userAgreement.js';
 const STORAGE_PROFILE_KEY = 'vpngo_profile';
 const STORAGE_CUSTOMER_KEY = 'vpngo_customer_id';
 const STORAGE_REFERRAL_KEY = 'vpngo_referrer_id';
-const DAILY_PRICE_RUB = 2;
+const DAILY_PRICE_RUB = 5;
 
 const appDownloadLinks = [
   { label: 'Windows', mark: 'Win', href: 'https://github.com/amnezia-vpn/amnezia-client/releases/download/4.8.15.4/AmneziaVPN_4.8.15.4_x64.exe' },
@@ -1271,7 +1271,7 @@ export default function VPNLandingPage() {
                 VPN-GO
               </h1>
               <p className="mt-6 text-2xl font-black leading-tight text-slate-900 sm:text-3xl">
-                Быстрый VPN с оплатой по балансу: 2 ₽ в сутки.
+                Быстрый VPN с оплатой по балансу: 5 ₽ в сутки.
               </p>
               <p className="mt-6 max-w-xl text-lg leading-8 text-slate-600">
                 Зарегистрируйтесь, пополните баланс в личном кабинете и подключайте устройства через AmneziaWG.
@@ -1313,11 +1313,11 @@ export default function VPNLandingPage() {
                     <div className="text-sm font-semibold text-slate-500">Личный кабинет</div>
                     <div className="mt-1 text-2xl font-black">Следите за балансом и расходами</div>
                   </div>
-                  <div className="rounded-lg bg-lime-400 px-3 py-2 text-sm font-black">2 ₽/сутки</div>
+                  <div className="rounded-lg bg-lime-400 px-3 py-2 text-sm font-black">5 ₽/сутки</div>
                 </div>
                 <div className="mt-5 rounded-lg border border-slate-200">
                   {[
-                    ['Баланс', 'Списание по активным устройствам', '2 ₽/сутки'],
+                    ['Баланс', 'Списание по активным устройствам', '5 ₽/сутки'],
                     ['Устройства', 'Конфиги и QR-коды в одном месте', 'AmneziaWG']
                   ].map(([title, text, value]) => (
                     <div

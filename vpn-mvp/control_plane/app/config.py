@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     fernet_key: str = ''
     node_heartbeat_timeout_sec: int = 120
-    daily_device_price_kopecks: int = 200
+    daily_device_price_kopecks: int = 500
 
 
 @lru_cache
