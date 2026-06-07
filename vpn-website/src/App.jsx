@@ -86,25 +86,24 @@ function PlatformIcon({ name }) {
 
   if (name === 'android') {
     return (
-      <svg {...commonProps}>
-        <path d="M7 10h10v7a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-7Z" />
-        <path d="M9 10V8a3 3 0 0 1 6 0v2" />
-        <path d="M8 5 6.5 3.5" />
-        <path d="m16 5 1.5-1.5" />
-        <path d="M5 11v5" />
-        <path d="M19 11v5" />
-        <path d="M10 14h.01" />
-        <path d="M14 14h.01" />
+      <svg {...commonProps} fill="currentColor" stroke="none">
+        <path d="M7.3 9.2h9.4v7.2a2.3 2.3 0 0 1-2.3 2.3h-.4v2a.9.9 0 0 1-1.8 0v-2h-1v2a.9.9 0 0 1-1.8 0v-2h-.4a2.3 2.3 0 0 1-2.3-2.3V9.2Z" />
+        <path d="M5 10.2a.9.9 0 0 1 .9.9v4.7a.9.9 0 0 1-1.8 0v-4.7a.9.9 0 0 1 .9-.9Z" />
+        <path d="M19 10.2a.9.9 0 0 1 .9.9v4.7a.9.9 0 0 1-1.8 0v-4.7a.9.9 0 0 1 .9-.9Z" />
+        <path d="M8.2 7.8a4.6 4.6 0 0 1 7.6 0H8.2Z" />
+        <path d="M8.5 3.2a.7.7 0 0 1 1 .2l1 1.6a.7.7 0 1 1-1.2.8l-1-1.6a.7.7 0 0 1 .2-1Z" />
+        <path d="M15.5 3.2a.7.7 0 0 1 .2 1l-1 1.6a.7.7 0 1 1-1.2-.8l1-1.6a.7.7 0 0 1 1-.2Z" />
+        <circle cx="10.2" cy="6.6" r=".55" fill="#ecfdf5" />
+        <circle cx="13.8" cy="6.6" r=".55" fill="#ecfdf5" />
       </svg>
     );
   }
 
-  if (name === 'ios') {
+  if (name === 'ios' || name === 'macos') {
     return (
-      <svg {...commonProps}>
-        <rect x="8" y="3" width="8" height="18" rx="2" />
-        <path d="M11 6h2" />
-        <path d="M12 18h.01" />
+      <svg {...commonProps} fill="currentColor" stroke="none">
+        <path d="M15.4 3.1c.2 1.4-.5 2.7-1.2 3.4-.8.8-1.8 1.2-2.8 1.1-.1-1.3.5-2.6 1.2-3.3.8-.8 2.1-1.4 2.8-1.2Z" />
+        <path d="M18.2 16.7c-.4 1-1 2-1.8 2.9-.8 1-1.6 1.9-2.7 1.9-.5 0-.9-.1-1.4-.4-.5-.2-1-.4-1.5-.4s-1 .2-1.6.4c-.5.2-1 .4-1.4.4-1 0-1.9-.9-2.7-1.9-1.5-1.9-2.7-5.3-1.1-7.7.8-1.2 2.2-2 3.7-2 .6 0 1.2.2 1.7.4.5.2 1 .4 1.4.4s.9-.2 1.5-.4c.6-.2 1.3-.5 2-.4 1.1.1 2.3.6 3 1.6-2.6 1.5-2.2 5.1.5 6.2Z" />
       </svg>
     );
   }
@@ -120,14 +119,7 @@ function PlatformIcon({ name }) {
     );
   }
 
-  return (
-    <svg {...commonProps}>
-      <path d="M5 6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5V15H5V6.5Z" />
-      <path d="M3 18h18" />
-      <path d="M9 18h6" />
-      <path d="M12 7.5h.01" />
-    </svg>
-  );
+  return null;
 }
 
 function paymentStatusClass(status) {
