@@ -1057,7 +1057,7 @@ export default function VPNLandingPage() {
         </header>
 
         <main id="cabinet" className="mx-auto grid max-w-7xl gap-6 px-4 py-8 sm:px-6 lg:grid-cols-[0.72fr_1.28fr]">
-          <section className="min-w-0 space-y-6 lg:order-first">
+          <section className="order-2 min-w-0 space-y-6 lg:order-1">
             {paymentReturn && (
               <div
                 className={`rounded-lg border p-4 text-sm font-semibold ${
@@ -1153,7 +1153,7 @@ export default function VPNLandingPage() {
             </div>
           </section>
 
-          <section className="order-first min-w-0 space-y-6 lg:order-none">
+          <section className="order-1 min-w-0 space-y-6 lg:order-2">
             <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
               <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
                 <label className="block min-w-0">
@@ -1331,6 +1331,9 @@ export default function VPNLandingPage() {
               </div>
             </div>
 
+          </section>
+
+          <section className="order-last min-w-0 lg:col-start-2 lg:order-3">
             <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
               <h2 className="text-xl font-black">История оплат</h2>
               <div className="mt-5 grid gap-3">
