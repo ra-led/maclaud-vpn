@@ -13,7 +13,7 @@ const previewDevices = [
 ];
 
 const appDownloadLinks = [
-  { label: 'Windows', mark: 'Win', href: 'https://amnezia.org/ru/downloads' },
+  { label: 'Windows', mark: 'Win', href: 'https://github.com/amnezia-vpn/amnezia-client/releases/download/4.8.15.4/AmneziaVPN_4.8.15.4_x64.exe' },
   { label: 'macOS', mark: 'mac', href: 'https://apps.apple.com/us/app/amneziawg/id6478942365?platform=mac' },
   { label: 'iOS', mark: 'iOS', href: 'https://apps.apple.com/us/app/amneziawg/id6478942365' },
   { label: 'Android', mark: 'And', href: 'https://play.google.com/store/apps/details?id=org.amnezia.awg' }
