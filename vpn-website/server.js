@@ -1058,6 +1058,26 @@ app.delete('/api/devices/:deviceId', async (req, res) => {
   }
 });
 
+app.post('/api/devices/:deviceId/regenerate', async (req, res) => {
+  const accountId = parseControlPlaneAccountId(req.body?.user_id);
+  const deviceId = Number(req.params.deviceId);
+  if (!accountId || !Number.isSafeInteger(deviceId) || deviceId <= 0) {
+    return res.status(400).json({ error: 'Invalid regenerate request' });
+  }
+
+  try {
+    const regenerated = await controlPlaneRequest({
+      method: 'POST',
+      path: `/v1/devices/${deviceId}/regenerate?telegram_id=${encodeURIComponent(accountId)}`,
+      body: {}
+    });
+    return res.json(regenerated);
+  } catch (error) {
+    console.error('device regenerate failed', { message: error instanceof Error ? error.message : String(error) });
+    return sendApiError(res, error, 'Failed to regenerate device config');
+  }
+});
+
 app.get('/api/devices/:deviceId/config', async (req, res) => {
   const accountId = parseControlPlaneAccountId(req.query.user_id);
   const deviceId = Number(req.params.deviceId);

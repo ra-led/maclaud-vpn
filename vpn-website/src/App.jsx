@@ -206,6 +206,8 @@ export default function VPNLandingPage() {
   const [deviceError, setDeviceError] = useState('');
   const [devicePendingDelete, setDevicePendingDelete] = useState(null);
   const [isDeletingDevice, setIsDeletingDevice] = useState(false);
+  const [devicePendingRegenerate, setDevicePendingRegenerate] = useState(null);
+  const [isRegeneratingDevice, setIsRegeneratingDevice] = useState(false);
   const [createdConfig, setCreatedConfig] = useState(null);
   const [heroBenefitIndex, setHeroBenefitIndex] = useState(0);
 
@@ -606,6 +608,37 @@ export default function VPNLandingPage() {
     }
   }
 
+  function requestRegenerateDevice(device) {
+    setDeviceError('');
+    setDevicePendingRegenerate(device);
+  }
+
+  async function confirmRegenerateDevice() {
+    if (!devicePendingRegenerate) {
+      return;
+    }
+
+    setDeviceError('');
+    setIsRegeneratingDevice(true);
+    try {
+      const payload = await fetch(`/api/devices/${devicePendingRegenerate.id}/regenerate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: customerId })
+      }).then(readJson);
+      setCreatedConfig(await withQrDataUrl({
+        ...payload,
+        device_name: devicePendingRegenerate.name
+      }));
+      setDevicePendingRegenerate(null);
+      await loadAccount();
+    } catch (error) {
+      setDeviceError(userMessage(error, 'Не удалось обновить конфиг'));
+    } finally {
+      setIsRegeneratingDevice(false);
+    }
+  }
+
   async function openDeviceConfig(device) {
     if (createdConfig?.device_id === device.id) {
       setCreatedConfig(null);
@@ -905,6 +938,33 @@ export default function VPNLandingPage() {
     </div>
   );
 
+  const regenerateDeviceModal = devicePendingRegenerate && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-8">
+      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-2xl">
+        <h2 className="text-2xl font-black">Обновить конфиг?</h2>
+        <p className="mt-3 text-sm leading-6 text-slate-600">
+          Для устройства <span className="font-bold text-slate-950">{devicePendingRegenerate.name}</span> будет создан новый конфиг на доступной ноде. Старый конфиг перестанет работать.
+        </p>
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+          <button
+            onClick={confirmRegenerateDevice}
+            disabled={isRegeneratingDevice}
+            className="rounded-lg bg-lime-400 px-5 py-4 text-center font-black text-slate-950 transition hover:bg-lime-300 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {isRegeneratingDevice ? 'Обновляем...' : 'Обновить конфиг'}
+          </button>
+          <button
+            onClick={() => setDevicePendingRegenerate(null)}
+            disabled={isRegeneratingDevice}
+            className="rounded-lg border border-slate-300 px-5 py-4 font-black text-slate-700 transition hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            Отмена
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   if (profile) {
     const balance = dashboard?.balance;
     const devices = dashboard?.devices || [];
@@ -1081,7 +1141,7 @@ export default function VPNLandingPage() {
                 <div className="hidden grid-cols-[1fr_0.8fr_1.1fr] bg-slate-50 px-4 py-3 text-xs font-bold uppercase text-slate-500 md:grid">
                   <div>Устройство</div>
                   <div>Статус</div>
-                  <div>Конфиг</div>
+                  <div>Действия</div>
                 </div>
                 {devices.length === 0 ? (
                   <div className="px-4 py-8 text-sm text-slate-500">
@@ -1122,15 +1182,36 @@ export default function VPNLandingPage() {
                                   ? 'Скрыть конфиг'
                                   : 'Показать конфиг'}
                             </button>
-                            <button
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                requestDeleteDevice(device);
-                              }}
-                              className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:border-red-300 hover:text-red-700"
+                            <details
+                              onClick={(event) => event.stopPropagation()}
+                              className="relative"
                             >
-                              Удалить
-                            </button>
+                              <summary className="list-none rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 transition hover:border-slate-500 [&::-webkit-details-marker]:hidden">
+                                Действия
+                              </summary>
+                              <div className="absolute right-0 z-20 mt-2 grid min-w-44 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-xs font-bold shadow-xl">
+                                <button
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    requestRegenerateDevice(device);
+                                    event.currentTarget.closest('details').open = false;
+                                  }}
+                                  className="px-3 py-2 text-left text-slate-700 transition hover:bg-slate-50"
+                                >
+                                  Обновить конфиг
+                                </button>
+                                <button
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    requestDeleteDevice(device);
+                                    event.currentTarget.closest('details').open = false;
+                                  }}
+                                  className="px-3 py-2 text-left text-red-700 transition hover:bg-red-50"
+                                >
+                                  Удалить
+                                </button>
+                              </div>
+                            </details>
                           </div>
                         </div>
 
@@ -1231,6 +1312,7 @@ export default function VPNLandingPage() {
         {passwordFallbackModal}
         {passwordBackupModal}
         {deleteDeviceModal}
+        {regenerateDeviceModal}
       </div>
     );
   }

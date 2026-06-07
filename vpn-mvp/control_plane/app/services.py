@@ -34,13 +34,18 @@ def get_or_create_user(db: Session, telegram_id: int, username: str | None, firs
     return user
 
 
-def choose_node(db: Session) -> Node:
+def choose_node(db: Session, exclude_node_id: int | None = None) -> Node:
     stmt = (
         select(Node)
         .where(Node.status == NodeStatus.healthy)
         .where(Node.active_clients < Node.max_clients)
         .order_by(Node.active_clients.asc(), Node.id.asc())
     )
+    if exclude_node_id is not None:
+        preferred = db.scalar(stmt.where(Node.id != exclude_node_id))
+        if preferred:
+            return preferred
+
     node = db.scalar(stmt)
     if not node:
         raise HTTPException(status_code=503, detail='No healthy nodes available')
@@ -141,19 +146,33 @@ def create_device_for_user(db: Session, user: User, name: str) -> dict:
 
 
 def regenerate_device_config(db: Session, device: Device) -> dict:
+    old_node = device.node
+    node = choose_node(db, exclude_node_id=old_node.id if old_node else None)
+
     edge_result = push_peer_command(
-        device.node,
+        node,
         method='POST',
         path='/peers',
         payload={'device_id': device.id, 'name': device.name},
     )
 
     conf_text = normalize_client_conf(edge_result['conf_text'])
+    device.node_id = node.id
     device.vpn_ip = edge_result['vpn_ip']
     device.public_key = edge_result['public_key']
     device.private_key_encrypted = encrypt_secret(conf_text)
+    if old_node and old_node.id != node.id:
+        if old_node.active_clients > 0:
+            old_node.active_clients -= 1
+        node.active_clients = (node.active_clients or 0) + 1
     db.commit()
     db.refresh(device)
+
+    if old_node and old_node.id != node.id:
+        try:
+            push_peer_command(old_node, method='DELETE', path=f'/peers/{device.id}')
+        except Exception:
+            pass
 
     return {'conf_text': conf_text, 'qr_png_base64': edge_result['qr_png_base64']}
 
