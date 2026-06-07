@@ -306,6 +306,12 @@ export default function VPNLandingPage() {
   }
 
   async function openDeviceConfig(device) {
+    if (createdConfig?.device_id === device.id) {
+      setCreatedConfig(null);
+      setIsConfigTextVisible(false);
+      return;
+    }
+
     setDeviceError('');
     setLoadingConfigDeviceId(device.id);
     try {
@@ -497,58 +503,6 @@ export default function VPNLandingPage() {
               )}
             </div>
 
-            {createdConfig && (
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h2 className="text-xl font-black text-emerald-950">
-                      Конфиг {createdConfig.device_name ? `для ${createdConfig.device_name}` : 'готов'}
-                    </h2>
-                    <p className="mt-1 text-sm text-emerald-800">
-                      Отсканируйте QR-код или скачайте файл для импорта в AmneziaWG/WireGuard-клиент.
-                    </p>
-                  </div>
-                  <button
-                    onClick={downloadConfig}
-                    className="rounded-lg bg-emerald-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-800"
-                  >
-                    Скачать конфиг
-                  </button>
-                </div>
-                <div className="mt-5 grid gap-5 md:grid-cols-[auto_1fr] md:items-center">
-                  <div className="rounded-lg border border-emerald-200 bg-white p-4">
-                    <img
-                      src={createdConfig.qrDataUrl}
-                      alt="QR-код конфигурации VPN"
-                      className="h-64 w-64 max-w-full"
-                    />
-                  </div>
-                  <div className="text-sm leading-7 text-emerald-900">
-                    <div className="font-bold">Файл: {createdConfig.conf_filename}</div>
-                    {createdConfig.vpn_ip && <div>VPN IP: {createdConfig.vpn_ip}</div>}
-                    <div className="mt-3 text-emerald-800">
-                      Текст конфига скрыт по умолчанию. Его можно раскрыть ниже, если нужно скопировать вручную.
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-5 border-t border-emerald-200 pt-5">
-                  <button
-                    onClick={() => setIsConfigTextVisible((current) => !current)}
-                    className="rounded-lg border border-emerald-300 bg-white px-4 py-3 text-sm font-bold text-emerald-900 transition hover:border-emerald-500"
-                  >
-                    {isConfigTextVisible ? 'Скрыть текст конфига' : 'Показать текст конфига'}
-                  </button>
-                  {isConfigTextVisible && (
-                    <textarea
-                      readOnly
-                      value={createdConfig.conf_text}
-                      className="mt-4 h-64 w-full resize-y rounded-lg border border-emerald-200 bg-white p-4 font-mono text-xs outline-none"
-                    />
-                  )}
-                </div>
-              </div>
-            )}
-
             <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-black">Устройства</h2>
@@ -567,40 +521,115 @@ export default function VPNLandingPage() {
                     Устройств пока нет. Пополните баланс и добавьте первое устройство.
                   </div>
                 ) : (
-                  devices.map((device) => (
-                    <div
-                      key={device.id}
-                      className="grid gap-2 border-t border-slate-200 px-4 py-4 text-sm first:border-t-0 md:grid-cols-[1fr_1fr_0.75fr_0.8fr_1fr] md:items-center"
-                    >
-                      <div>
-                        <div className="font-bold">{device.name}</div>
-                        <div className="text-xs text-slate-500">{device.vpn_ip}</div>
-                      </div>
-                      <div className="text-slate-600">
-                        {device.node_name}
-                        {device.city ? `, ${device.city}` : ''}
-                      </div>
-                      <div className="font-semibold text-emerald-700">{statusLabel(device.status)}</div>
-                      <div className="text-slate-600">
-                        {formatBytes((device.rx_bytes || 0) + (device.tx_bytes || 0))}
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button
+                  devices.map((device) => {
+                    const isConfigOpen = createdConfig?.device_id === device.id;
+                    return (
+                      <div key={device.id} className="border-t border-slate-200 first:border-t-0">
+                        <div
                           onClick={() => openDeviceConfig(device)}
-                          disabled={loadingConfigDeviceId === device.id}
-                          className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:border-slate-500"
+                          className={`grid cursor-pointer gap-2 px-4 py-4 text-sm transition md:grid-cols-[1fr_1fr_0.75fr_0.8fr_1fr] md:items-center ${
+                            isConfigOpen ? 'bg-emerald-50 ring-1 ring-inset ring-emerald-200' : 'hover:bg-slate-50'
+                          }`}
                         >
-                          {loadingConfigDeviceId === device.id ? 'Загрузка...' : 'Показать конфиг'}
-                        </button>
-                        <button
-                          onClick={() => deleteDevice(device.id)}
-                          className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:border-red-300 hover:text-red-700"
-                        >
-                          Удалить
-                        </button>
+                          <div>
+                            <div className="font-bold">{device.name}</div>
+                            <div className="text-xs text-slate-500">{device.vpn_ip}</div>
+                          </div>
+                          <div className="text-slate-600">
+                            {device.node_name}
+                            {device.city ? `, ${device.city}` : ''}
+                          </div>
+                          <div className="font-semibold text-emerald-700">{statusLabel(device.status)}</div>
+                          <div className="text-slate-600">
+                            {formatBytes((device.rx_bytes || 0) + (device.tx_bytes || 0))}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openDeviceConfig(device);
+                              }}
+                              disabled={loadingConfigDeviceId === device.id}
+                              className={`rounded-lg border px-3 py-2 text-xs font-bold transition ${
+                                isConfigOpen
+                                  ? 'border-emerald-300 bg-white text-emerald-900'
+                                  : 'border-slate-300 text-slate-700 hover:border-slate-500'
+                              }`}
+                            >
+                              {loadingConfigDeviceId === device.id
+                                ? 'Загрузка...'
+                                : isConfigOpen
+                                  ? 'Скрыть конфиг'
+                                  : 'Показать конфиг'}
+                            </button>
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                deleteDevice(device.id);
+                              }}
+                              className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:border-red-300 hover:text-red-700"
+                            >
+                              Удалить
+                            </button>
+                          </div>
+                        </div>
+
+                        {isConfigOpen && (
+                          <div className="border-t border-emerald-200 bg-emerald-50 px-4 py-5">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                              <div>
+                                <h3 className="text-lg font-black text-emerald-950">
+                                  Конфиг для {device.name}
+                                </h3>
+                                <p className="mt-1 text-sm text-emerald-800">
+                                  Отсканируйте QR-код или скачайте файл для импорта в AmneziaWG/WireGuard-клиент.
+                                </p>
+                              </div>
+                              <button
+                                onClick={downloadConfig}
+                                className="rounded-lg bg-emerald-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-800"
+                              >
+                                Скачать конфиг
+                              </button>
+                            </div>
+
+                            <div className="mt-5 grid gap-5 md:grid-cols-[auto_1fr] md:items-center">
+                              <div className="rounded-lg border border-emerald-200 bg-white p-4">
+                                <img
+                                  src={createdConfig.qrDataUrl}
+                                  alt="QR-код конфигурации VPN"
+                                  className="h-64 w-64 max-w-full"
+                                />
+                              </div>
+                              <div className="text-sm leading-7 text-emerald-900">
+                                <div className="font-bold">Файл: {createdConfig.conf_filename}</div>
+                                {createdConfig.vpn_ip && <div>VPN IP: {createdConfig.vpn_ip}</div>}
+                                <div className="mt-3 text-emerald-800">
+                                  Текст конфига скрыт по умолчанию. Его можно раскрыть ниже, если нужно скопировать вручную.
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="mt-5 border-t border-emerald-200 pt-5">
+                              <button
+                                onClick={() => setIsConfigTextVisible((current) => !current)}
+                                className="rounded-lg border border-emerald-300 bg-white px-4 py-3 text-sm font-bold text-emerald-900 transition hover:border-emerald-500"
+                              >
+                                {isConfigTextVisible ? 'Скрыть текст конфига' : 'Показать текст конфига'}
+                              </button>
+                              {isConfigTextVisible && (
+                                <textarea
+                                  readOnly
+                                  value={createdConfig.conf_text}
+                                  className="mt-4 h-64 w-full resize-y rounded-lg border border-emerald-200 bg-white p-4 font-mono text-xs outline-none"
+                                />
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
