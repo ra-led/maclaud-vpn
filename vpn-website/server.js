@@ -101,6 +101,9 @@ function normalizeIp(rawIp) {
   if (rawIp.startsWith('::ffff:')) {
     return rawIp.slice(7);
   }
+  if (rawIp === '::1') {
+    return '127.0.0.1';
+  }
   return rawIp;
 }
 
@@ -461,6 +464,13 @@ function transportsFromResponse(response) {
   return transports.filter((transport) => typeof transport === 'string');
 }
 
+function profileFromControlPlaneUser(user) {
+  return {
+    name: user?.first_name || user?.username || 'Пользователь VPN-GO',
+    email: ''
+  };
+}
+
 function sendApiError(res, error, fallback = 'Unexpected API error') {
   const status = Number.isInteger(error?.status) ? error.status : 500;
   return res.status(status).json({
@@ -468,6 +478,38 @@ function sendApiError(res, error, fallback = 'Unexpected API error') {
     detail: error?.payload || null
   });
 }
+
+app.post('/api/session/by-ip', async (req, res) => {
+  const clientIp = normalizeIp(getClientIp(req));
+  if (!clientIp) {
+    return res.status(400).json({ matched: false, error: 'Client IP was not detected' });
+  }
+
+  try {
+    ipaddr.parse(clientIp);
+  } catch (_error) {
+    return res.status(400).json({ matched: false, client_ip: clientIp, error: 'Client IP is invalid' });
+  }
+
+  try {
+    const payload = await controlPlaneRequest({
+      path: `/v1/devices/by-vpn-ip/${encodeURIComponent(clientIp)}`
+    });
+    return res.json({
+      matched: true,
+      client_ip: clientIp,
+      user_id: String(payload.user.telegram_id),
+      profile: profileFromControlPlaneUser(payload.user),
+      device: payload.device
+    });
+  } catch (error) {
+    if (error?.status === 404) {
+      return res.json({ matched: false, client_ip: clientIp });
+    }
+    console.error('ip session lookup failed', { message: error instanceof Error ? error.message : String(error) });
+    return sendApiError(res, error, 'Failed to look up VPN device by IP');
+  }
+});
 
 app.post('/api/passkeys/authentication/options', async (_req, res) => {
   try {

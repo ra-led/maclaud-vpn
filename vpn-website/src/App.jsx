@@ -111,6 +111,7 @@ export default function VPNLandingPage() {
   const [profile, setProfile] = useState(() => getStoredProfile());
   const [customerId, setCustomerId] = useState(() => getStoredCustomerId());
   const [authError, setAuthError] = useState('');
+  const [authStatus, setAuthStatus] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [dashboard, setDashboard] = useState(null);
   const [isLoadingAccount, setIsLoadingAccount] = useState(false);
@@ -215,13 +216,23 @@ export default function VPNLandingPage() {
   async function loginWithPasskey() {
     setPaymentError('');
     setAuthError('');
-    if (!browserSupportsWebAuthn()) {
-      setAuthError('Этот браузер не поддерживает вход через passkey');
-      return;
-    }
-
     setIsAuthenticating(true);
     try {
+      setAuthStatus('Поиск устройства в сети');
+      const ipSession = await fetch('/api/session/by-ip', {
+        method: 'POST'
+      }).then(readJson);
+      if (ipSession.matched) {
+        await finishPasskeySession(ipSession);
+        return;
+      }
+
+      setAuthStatus('Ожидаем подтверждение на устройстве');
+      if (!browserSupportsWebAuthn()) {
+        setAuthError('Этот браузер не поддерживает вход через passkey');
+        return;
+      }
+
       const authOptions = await fetch('/api/passkeys/authentication/options', {
         method: 'POST'
       }).then(readJson);
@@ -237,6 +248,7 @@ export default function VPNLandingPage() {
       await finishPasskeySession(verifiedSession);
     } catch (_loginError) {
       try {
+        setAuthStatus('Создаем вход через устройство');
         const registrationOptions = await fetch('/api/passkeys/registration/options', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -260,6 +272,7 @@ export default function VPNLandingPage() {
       }
     } finally {
       setIsAuthenticating(false);
+      setAuthStatus('');
     }
   }
 
@@ -707,10 +720,13 @@ export default function VPNLandingPage() {
           <button
             onClick={loginWithPasskey}
             disabled={isAuthenticating}
-            className={`rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-800 ${
+            className={`inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-800 ${
               isAuthenticating ? 'cursor-not-allowed opacity-70' : ''
             }`}
           >
+            {isAuthenticating && (
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+            )}
             {isAuthenticating ? 'Открываем...' : 'Вход'}
           </button>
         </div>
@@ -733,11 +749,17 @@ export default function VPNLandingPage() {
                 <button
                   onClick={loginWithPasskey}
                   disabled={isAuthenticating}
-                  className="rounded-lg bg-lime-400 px-6 py-4 text-base font-black text-slate-950 transition hover:bg-lime-300"
+                  className="inline-flex items-center justify-center gap-3 rounded-lg bg-lime-400 px-6 py-4 text-base font-black text-slate-950 transition hover:bg-lime-300 disabled:cursor-not-allowed disabled:opacity-70"
                 >
+                  {isAuthenticating && (
+                    <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-950/30 border-t-slate-950" />
+                  )}
                   {isAuthenticating ? 'Открываем...' : 'Вход'}
                 </button>
               </div>
+              {authStatus && (
+                <div className="mt-4 text-sm font-semibold text-slate-600">{authStatus}...</div>
+              )}
               {authError && (
                 <div className="mt-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                   {authError}

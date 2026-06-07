@@ -193,6 +193,39 @@ def list_devices(
     return result
 
 
+@app.get("/v1/devices/by-vpn-ip/{vpn_ip}")
+def find_device_by_vpn_ip(
+    vpn_ip: str,
+    _: None = Depends(require_internal_token),
+    db: Session = Depends(get_db),
+) -> dict:
+    device = db.scalar(
+        select(Device)
+        .options(joinedload(Device.user), joinedload(Device.node))
+        .where(Device.vpn_ip == vpn_ip, Device.status == DeviceStatus.active)
+    )
+    if not device:
+        raise HTTPException(status_code=404, detail="Active device not found")
+    if device.user.status != UserStatus.active:
+        raise HTTPException(status_code=403, detail="User is not active")
+
+    return {
+        "user": {
+            "telegram_id": device.user.telegram_id,
+            "username": device.user.username,
+            "first_name": device.user.first_name,
+            "status": device.user.status.value,
+        },
+        "device": {
+            "id": device.id,
+            "name": device.name,
+            "vpn_ip": device.vpn_ip,
+            "status": device.status.value,
+            "node_name": device.node.name if device.node else None,
+        },
+    }
+
+
 @app.post("/v1/devices", response_model=DeviceCreateOut)
 def create_device(
     payload: DeviceCreateIn,
