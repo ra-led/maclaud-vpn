@@ -8,12 +8,6 @@ const STORAGE_CUSTOMER_KEY = 'vpngo_customer_id';
 const STORAGE_REFERRAL_KEY = 'vpngo_referrer_id';
 const DAILY_PRICE_RUB = 2;
 
-const previewDevices = [
-  { name: 'iPhone', location: 'Москва', status: 'Активен', traffic: '12.4 ГБ' },
-  { name: 'MacBook', location: 'Амстердам', status: 'Активен', traffic: '38.1 ГБ' },
-  { name: 'Планшет', location: 'Франкфурт', status: 'Пауза', traffic: '4.8 ГБ' }
-];
-
 const appDownloadLinks = [
   { label: 'Windows', mark: 'Win', href: 'https://github.com/amnezia-vpn/amnezia-client/releases/download/4.8.15.4/AmneziaVPN_4.8.15.4_x64.exe' },
   { label: 'macOS', mark: 'mac', href: 'https://apps.apple.com/us/app/amneziawg/id6478942365?platform=mac' },
@@ -1249,22 +1243,25 @@ export default function VPNLandingPage() {
               <div className="rounded-lg bg-white p-5">
                 <div className="flex items-center justify-between border-b border-slate-200 pb-4">
                   <div>
-                    <div className="text-sm font-semibold text-slate-500">Превью кабинета</div>
-                    <div className="mt-1 text-2xl font-black">Реальные данные после входа</div>
+                    <div className="text-sm font-semibold text-slate-500">Личный кабинет</div>
+                    <div className="mt-1 text-2xl font-black">Следите за балансом и расходами</div>
                   </div>
                   <div className="rounded-lg bg-lime-400 px-3 py-2 text-sm font-black">2 ₽/сутки</div>
                 </div>
                 <div className="mt-5 rounded-lg border border-slate-200">
-                  {previewDevices.slice(0, 2).map((device) => (
+                  {[
+                    ['Баланс', 'Списание по активным устройствам', '2 ₽/сутки'],
+                    ['Устройства', 'Конфиги и QR-коды в одном месте', 'AmneziaWG']
+                  ].map(([title, text, value]) => (
                     <div
-                      key={device.name}
+                      key={title}
                       className="flex items-center justify-between border-b border-slate-200 px-4 py-3 last:border-b-0"
                     >
                       <div>
-                        <div className="font-black">{device.name}</div>
-                        <div className="text-sm text-slate-500">{device.location}</div>
+                        <div className="font-black">{title}</div>
+                        <div className="text-sm text-slate-500">{text}</div>
                       </div>
-                      <div className="text-sm font-bold text-emerald-700">{device.status}</div>
+                      <div className="text-sm font-bold text-emerald-700">{value}</div>
                     </div>
                   ))}
                 </div>
@@ -1278,7 +1275,7 @@ export default function VPNLandingPage() {
             {[
               ['1', 'Зарегистрируйтесь', 'Создайте аккаунт VPN-GO и войдите в личный кабинет.'],
               ['2', 'Пополните баланс', 'Оплата находится внутри личного кабинета и проходит через ЮKassa.'],
-              ['3', 'Подключите устройство', 'Получите конфиг AmneziaWG и включите VPN в приложении.']
+              ['3', 'Подключите устройство', 'Получите конфиг и включите VPN в AmneziaWG.']
             ].map(([step, title, text]) => (
               <div key={step} className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-950 text-sm font-black text-white">
