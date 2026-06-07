@@ -656,7 +656,7 @@ export default function VPNLandingPage() {
           onClick={acceptLoginConsent}
           className="mt-6 w-full rounded-lg bg-lime-400 px-5 py-4 text-base font-black text-slate-950 transition hover:bg-lime-300"
         >
-          Закрыть эту хрень, согашаюсь со всем
+          Закрыть эту хрень, я соглашаюсь
         </button>
       </div>
     </div>
