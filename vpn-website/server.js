@@ -86,11 +86,11 @@ function validateStartupConfig() {
 }
 
 function getClientIp(req) {
-  const forwardedFor = req.headers['x-forwarded-for'];
-  if (typeof forwardedFor === 'string' && forwardedFor.length > 0) {
-    return forwardedFor.split(',')[0].trim();
+  if (req.ip) {
+    return req.ip;
   }
-  return req.ip || req.socket.remoteAddress || '';
+
+  return req.socket.remoteAddress || '';
 }
 
 function normalizeIp(rawIp) {
