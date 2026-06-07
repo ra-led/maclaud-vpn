@@ -862,27 +862,27 @@ export default function VPNLandingPage() {
     return (
       <div className="min-h-screen bg-[#f7f8fb] text-slate-950">
         <header className="border-b border-slate-200 bg-white">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-            <a href="#cabinet" className="flex items-center gap-3">
+          <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 sm:px-6">
+            <a href="#cabinet" className="flex min-w-0 items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-lime-400 text-base font-black text-slate-950">
                 GO
               </div>
-              <div>
+              <div className="min-w-0">
                 <div className="text-lg font-black tracking-tight">VPN-GO</div>
                 <div className="text-xs text-slate-500">Личный кабинет</div>
               </div>
             </a>
-            <div className="flex items-center gap-3">
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
               <button
                 onClick={() => loadAccount()}
                 disabled={isLoadingAccount}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 sm:px-4"
               >
                 Обновить
               </button>
               <button
                 onClick={logout}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 sm:px-4"
               >
                 Выйти
               </button>
@@ -890,8 +890,8 @@ export default function VPNLandingPage() {
           </div>
         </header>
 
-        <main id="cabinet" className="mx-auto grid max-w-7xl gap-6 px-6 py-8 lg:grid-cols-[0.72fr_1.28fr]">
-          <section className="space-y-6">
+        <main id="cabinet" className="mx-auto grid max-w-7xl gap-6 px-4 py-8 sm:px-6 lg:grid-cols-[0.72fr_1.28fr]">
+          <section className="min-w-0 space-y-6">
             {paymentReturn && (
               <div
                 className={`rounded-lg border p-4 text-sm font-semibold ${
@@ -912,7 +912,7 @@ export default function VPNLandingPage() {
               </div>
             )}
 
-            <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
               <div className="text-sm text-slate-500">Баланс</div>
               <div className="mt-2 text-5xl font-black tracking-tight">
                 {isLoadingAccount && !balance ? '...' : formatRubFromKopecks(balance?.balance_kopecks)}
@@ -923,6 +923,54 @@ export default function VPNLandingPage() {
                 {daysLeft !== null && daysLeft !== undefined
                   ? ` Баланса хватит примерно на ${daysLeft} ${dayLabel(daysLeft)}.`
                   : ' Добавьте устройство, чтобы увидеть срок работы.'}
+              </div>
+
+              <div className="mt-6 border-t border-slate-200 pt-5">
+                <h2 className="text-lg font-black">Пополнить баланс</h2>
+                <div className="mt-4 grid grid-cols-3 gap-2">
+                  {['150', '300', '900'].map((amount) => (
+                    <button
+                      key={amount}
+                      onClick={() => setTopUpAmount(amount)}
+                      className={`rounded-lg border px-3 py-3 text-sm font-bold transition ${
+                        topUpAmount === amount
+                          ? 'border-slate-950 bg-slate-950 text-white'
+                          : 'border-slate-200 bg-white hover:border-slate-400'
+                      }`}
+                    >
+                      {amount} ₽
+                    </button>
+                  ))}
+                </div>
+
+                <label className="mt-5 block text-sm font-semibold text-slate-700">
+                  Сумма пополнения
+                </label>
+                <div className="mt-2 flex min-w-0 rounded-lg border border-slate-300 bg-white focus-within:border-slate-950">
+                  <input
+                    value={topUpAmount}
+                    onChange={(event) => setTopUpAmount(event.target.value)}
+                    inputMode="decimal"
+                    className="min-w-0 flex-1 rounded-lg px-4 py-3 text-lg font-bold outline-none"
+                  />
+                  <div className="px-4 py-3 text-lg font-bold text-slate-500">₽</div>
+                </div>
+
+                {paymentError && (
+                  <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    {paymentError}
+                  </div>
+                )}
+
+                <button
+                  onClick={createPayment}
+                  disabled={isPaying}
+                  className={`mt-5 w-full rounded-lg bg-lime-400 px-5 py-4 text-base font-black text-slate-950 transition hover:bg-lime-300 ${
+                    isPaying ? 'cursor-not-allowed opacity-70' : ''
+                  }`}
+                >
+                  {isPaying ? 'Переходим к оплате...' : 'Оплатить через ЮKassa'}
+                </button>
               </div>
 
               <div className="mt-6 border-t border-slate-200 pt-5">
@@ -943,58 +991,10 @@ export default function VPNLandingPage() {
                 </div>
               </div>
             </div>
-
-            <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-              <h2 className="text-xl font-black">Пополнить баланс</h2>
-              <div className="mt-5 grid grid-cols-3 gap-2">
-                {['150', '300', '900'].map((amount) => (
-                  <button
-                    key={amount}
-                    onClick={() => setTopUpAmount(amount)}
-                    className={`rounded-lg border px-3 py-3 text-sm font-bold transition ${
-                      topUpAmount === amount
-                        ? 'border-slate-950 bg-slate-950 text-white'
-                        : 'border-slate-200 bg-white hover:border-slate-400'
-                    }`}
-                  >
-                    {amount} ₽
-                  </button>
-                ))}
-              </div>
-
-              <label className="mt-5 block text-sm font-semibold text-slate-700">
-                Сумма пополнения
-              </label>
-              <div className="mt-2 flex rounded-lg border border-slate-300 bg-white focus-within:border-slate-950">
-                <input
-                  value={topUpAmount}
-                  onChange={(event) => setTopUpAmount(event.target.value)}
-                  inputMode="decimal"
-                  className="min-w-0 flex-1 rounded-lg px-4 py-3 text-lg font-bold outline-none"
-                />
-                <div className="px-4 py-3 text-lg font-bold text-slate-500">₽</div>
-              </div>
-
-              {paymentError && (
-                <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                  {paymentError}
-                </div>
-              )}
-
-              <button
-                onClick={createPayment}
-                disabled={isPaying}
-                className={`mt-5 w-full rounded-lg bg-lime-400 px-5 py-4 text-base font-black text-slate-950 transition hover:bg-lime-300 ${
-                  isPaying ? 'cursor-not-allowed opacity-70' : ''
-                }`}
-              >
-                {isPaying ? 'Переходим к оплате...' : 'Оплатить через ЮKassa'}
-              </button>
-            </div>
           </section>
 
-          <section className="space-y-6">
-            <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+          <section className="min-w-0 space-y-6">
+            <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
               <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
                 <div>
                   <h1 className="text-2xl font-black">Здравствуйте, {profile.name}</h1>
@@ -1026,12 +1026,12 @@ export default function VPNLandingPage() {
               )}
             </div>
 
-            <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-black">Устройства</h2>
                 <span className="text-sm font-semibold text-slate-500">{devices.length} активных</span>
               </div>
-              <div className="mt-5 rounded-lg border border-slate-200">
+              <div className="mt-5 min-w-0 rounded-lg border border-slate-200">
                 <div className="hidden grid-cols-[1fr_0.8fr_1.1fr] bg-slate-50 px-4 py-3 text-xs font-bold uppercase text-slate-500 md:grid">
                   <div>Устройство</div>
                   <div>Статус</div>
@@ -1048,13 +1048,13 @@ export default function VPNLandingPage() {
                       <div key={device.id} className="border-t border-slate-200 first:border-t-0">
                         <div
                           onClick={() => openDeviceConfig(device)}
-                          className={`grid cursor-pointer gap-2 px-4 py-4 text-sm transition md:grid-cols-[1fr_0.8fr_1.1fr] md:items-center ${
+                          className={`grid min-w-0 cursor-pointer gap-2 px-4 py-4 text-sm transition md:grid-cols-[1fr_0.8fr_1.1fr] md:items-center ${
                             isConfigOpen ? 'bg-emerald-50 ring-1 ring-inset ring-emerald-200' : 'hover:bg-slate-50'
                           }`}
                         >
-                          <div>
-                            <div className="font-bold">{device.name}</div>
-                            <div className="text-xs text-slate-500">{device.vpn_ip}</div>
+                          <div className="min-w-0">
+                            <div className="truncate font-bold">{device.name}</div>
+                            <div className="truncate text-xs text-slate-500">{device.vpn_ip}</div>
                           </div>
                           <div className="font-semibold text-emerald-700">{statusLabel(device.status)}</div>
                           <div className="flex flex-wrap gap-2">
