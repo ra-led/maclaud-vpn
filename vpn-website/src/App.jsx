@@ -976,7 +976,8 @@ export default function VPNLandingPage() {
               <div className="mt-6 border-t border-slate-200 pt-5">
                 <h2 className="text-lg font-black">Пригласить</h2>
                 <p className="mt-2 text-sm leading-6 text-slate-600">
-                  При активации нового аккаунта по приглашению вы оба получите 50 ₽ на баланс.
+                  При активации нового аккаунта по приглашению вы оба{' '}
+                  <span className="dark-rainbow-text font-black">получите 50 ₽ на баланс</span>.
                 </p>
                 <div className="mt-4 flex overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
                   <div className="min-w-0 flex-1 truncate px-4 py-3 font-mono text-xs text-slate-700">

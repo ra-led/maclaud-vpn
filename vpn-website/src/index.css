@@ -12,3 +12,23 @@ body,
 * {
   box-sizing: border-box;
 }
+
+.dark-rainbow-text {
+  animation: dark-rainbow-shift 8s ease-in-out infinite;
+  background: linear-gradient(110deg, #14532d, #1e3a8a, #6b21a8, #9f1239, #854d0e, #14532d);
+  background-size: 260% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@keyframes dark-rainbow-shift {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+}
