@@ -1,6 +1,7 @@
 import QRCode from 'qrcode';
 import { browserSupportsWebAuthn, startAuthentication, startRegistration } from '@simplewebauthn/browser';
 import { useEffect, useState } from 'react';
+import { userAgreementText } from './userAgreement.js';
 
 const STORAGE_PROFILE_KEY = 'vpngo_profile';
 const STORAGE_CUSTOMER_KEY = 'vpngo_customer_id';
@@ -119,11 +120,37 @@ async function withQrDataUrl(config) {
   return { ...config, qrDataUrl };
 }
 
+function renderAgreementLine(line, index) {
+  if (line.startsWith('# ')) {
+    return (
+      <h1 key={index} className="text-3xl font-black text-slate-950">
+        {line.slice(2)}
+      </h1>
+    );
+  }
+  if (line.startsWith('## ')) {
+    return (
+      <h2 key={index} className="pt-5 text-xl font-black text-slate-950">
+        {line.slice(3)}
+      </h2>
+    );
+  }
+  if (!line.trim()) {
+    return <div key={index} className="h-2" />;
+  }
+  return (
+    <p key={index} className="text-sm leading-7 text-slate-700">
+      {line}
+    </p>
+  );
+}
+
 export default function VPNLandingPage() {
   const [profile, setProfile] = useState(() => getStoredProfile());
   const [customerId, setCustomerId] = useState(() => getStoredCustomerId());
   const [referrerId, setReferrerId] = useState(() => getStoredReferrerId());
   const [isReferralCopied, setIsReferralCopied] = useState(false);
+  const [loginConsentVisible, setLoginConsentVisible] = useState(false);
   const [authError, setAuthError] = useState('');
   const [authStatus, setAuthStatus] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
@@ -145,6 +172,37 @@ export default function VPNLandingPage() {
   const [loadingConfigDeviceId, setLoadingConfigDeviceId] = useState(null);
   const [deviceError, setDeviceError] = useState('');
   const [createdConfig, setCreatedConfig] = useState(null);
+
+  if (window.location.pathname === '/agreement') {
+    return (
+      <div className="min-h-screen bg-[#f7f8fb] text-slate-950">
+        <header className="border-b border-slate-200 bg-white">
+          <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-4">
+            <a href="/" className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-lime-400 text-base font-black">
+                GO
+              </div>
+              <div>
+                <div className="text-lg font-black tracking-tight">VPN-GO</div>
+                <div className="text-xs text-slate-500">Пользовательское соглашение</div>
+              </div>
+            </a>
+            <a
+              href="/"
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700 transition hover:border-slate-500"
+            >
+              Назад
+            </a>
+          </div>
+        </header>
+        <main className="mx-auto max-w-4xl px-6 py-10">
+          <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="grid gap-2">{userAgreementText.split('\n').map(renderAgreementLine)}</div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   async function loadAccount(currentProfile = profile, currentCustomerId = customerId) {
     if (!currentProfile || !currentCustomerId) {
@@ -183,7 +241,7 @@ export default function VPNLandingPage() {
     }
 
     if (!profile && params.get('login') === '1') {
-      loginWithPasskey();
+      openLoginConsent();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -257,6 +315,16 @@ export default function VPNLandingPage() {
     setPasswordAuthError(message);
     setPasswordCanCreate(false);
     setPasswordAuthVisible(true);
+  }
+
+  function openLoginConsent() {
+    setAuthError('');
+    setLoginConsentVisible(true);
+  }
+
+  function acceptLoginConsent() {
+    setLoginConsentVisible(false);
+    loginWithPasskey();
   }
 
   async function loginWithPasskey() {
@@ -543,6 +611,37 @@ export default function VPNLandingPage() {
   const referralLink = customerId
     ? `${window.location.origin}/?ref=${encodeURIComponent(customerId)}&login=1`
     : '';
+
+  const loginConsentModal = loginConsentVisible && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-8">
+      <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-2xl">
+        <div className="text-2xl font-black leading-tight text-slate-950">
+          Без почты. Без телефона. Без имени.
+        </div>
+        <p className="mt-4 text-sm leading-6 text-slate-600">
+          Вход — по passkey или логину с паролем. Не шлём письма, SMS и пуши, не собираем личные данные.
+        </p>
+        <p className="mt-4 text-sm leading-6 text-slate-600">
+          Продолжая, вы принимаете{' '}
+          <a
+            href="/agreement"
+            target="_blank"
+            rel="noreferrer"
+            className="font-bold text-slate-950 underline decoration-lime-400 decoration-2 underline-offset-4"
+          >
+            Пользовательское соглашение
+          </a>
+          .
+        </p>
+        <button
+          onClick={acceptLoginConsent}
+          className="mt-6 w-full rounded-lg bg-lime-400 px-5 py-4 text-base font-black text-slate-950 transition hover:bg-lime-300"
+        >
+          Закрыть эту хрень, согашаюсь со всем
+        </button>
+      </div>
+    </div>
+  );
 
   const passwordFallbackModal = passwordAuthVisible && (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-8">
@@ -1004,7 +1103,7 @@ export default function VPNLandingPage() {
             </div>
           </a>
           <button
-            onClick={loginWithPasskey}
+            onClick={openLoginConsent}
             disabled={isAuthenticating}
             className={`inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-800 ${
               isAuthenticating ? 'cursor-not-allowed opacity-70' : ''
@@ -1033,7 +1132,7 @@ export default function VPNLandingPage() {
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <button
-                  onClick={loginWithPasskey}
+                  onClick={openLoginConsent}
                   disabled={isAuthenticating}
                   className="inline-flex items-center justify-center gap-3 rounded-lg bg-lime-400 px-6 py-4 text-base font-black text-slate-950 transition hover:bg-lime-300 disabled:cursor-not-allowed disabled:opacity-70"
                 >
@@ -1111,6 +1210,7 @@ export default function VPNLandingPage() {
           <div className="text-slate-500">© 2026 VPN-GO</div>
         </div>
       </footer>
+      {loginConsentModal}
       {passwordFallbackModal}
     </div>
   );
