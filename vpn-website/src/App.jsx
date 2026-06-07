@@ -74,7 +74,7 @@ function statusLabel(status) {
 
 function PlatformIcon({ name }) {
   const commonProps = {
-    className: 'h-4 w-4',
+    className: 'h-5 w-5',
     viewBox: '0 0 24 24',
     fill: 'none',
     stroke: 'currentColor',
@@ -99,7 +99,7 @@ function PlatformIcon({ name }) {
     );
   }
 
-  if (name === 'ios' || name === 'macos') {
+  if (name === 'ios') {
     return (
       <svg {...commonProps} fill="currentColor" stroke="none">
         <path d="M15.4 3.1c.2 1.4-.5 2.7-1.2 3.4-.8.8-1.8 1.2-2.8 1.1-.1-1.3.5-2.6 1.2-3.3.8-.8 2.1-1.4 2.8-1.2Z" />
@@ -115,6 +115,17 @@ function PlatformIcon({ name }) {
         <path d="M13 3.6 20 2v9h-7V3.6Z" />
         <path d="M4 13h7v7l-7-1.5V13Z" />
         <path d="M13 13h7v9l-7-1.6V13Z" />
+      </svg>
+    );
+  }
+
+  if (name === 'macos') {
+    return (
+      <svg {...commonProps}>
+        <path d="M4.5 5.5A2.5 2.5 0 0 1 7 3h10a2.5 2.5 0 0 1 2.5 2.5V14a2.5 2.5 0 0 1-2.5 2.5H7A2.5 2.5 0 0 1 4.5 14V5.5Z" />
+        <path d="M8 20h8" />
+        <path d="M12 16.5V20" />
+        <path d="M10.5 6h3" />
       </svg>
     );
   }
@@ -1273,7 +1284,7 @@ export default function VPNLandingPage() {
                                         rel="noreferrer"
                                         className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-black text-emerald-900 transition hover:border-emerald-400"
                                       >
-                                        <span className="flex h-7 w-7 items-center justify-center rounded bg-emerald-100 text-emerald-800">
+                                        <span className="flex h-8 w-8 items-center justify-center rounded bg-emerald-100 text-emerald-800">
                                           <PlatformIcon name={link.icon} />
                                         </span>
                                         {link.label}
