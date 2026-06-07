@@ -204,6 +204,8 @@ export default function VPNLandingPage() {
   const [isCreatingDevice, setIsCreatingDevice] = useState(false);
   const [loadingConfigDeviceId, setLoadingConfigDeviceId] = useState(null);
   const [deviceError, setDeviceError] = useState('');
+  const [devicePendingDelete, setDevicePendingDelete] = useState(null);
+  const [isDeletingDevice, setIsDeletingDevice] = useState(false);
   const [createdConfig, setCreatedConfig] = useState(null);
   const [heroBenefitIndex, setHeroBenefitIndex] = useState(0);
 
@@ -578,16 +580,29 @@ export default function VPNLandingPage() {
     }
   }
 
-  async function deleteDevice(deviceId) {
+  function requestDeleteDevice(device) {
     setDeviceError('');
+    setDevicePendingDelete(device);
+  }
+
+  async function confirmDeleteDevice() {
+    if (!devicePendingDelete) {
+      return;
+    }
+
+    setDeviceError('');
+    setIsDeletingDevice(true);
     try {
-      await fetch(`/api/devices/${deviceId}?user_id=${encodeURIComponent(customerId)}`, {
+      await fetch(`/api/devices/${devicePendingDelete.id}?user_id=${encodeURIComponent(customerId)}`, {
         method: 'DELETE'
       }).then(readJson);
+      setDevicePendingDelete(null);
       setCreatedConfig(null);
       await loadAccount();
     } catch (error) {
       setDeviceError(userMessage(error, 'Не удалось удалить устройство'));
+    } finally {
+      setIsDeletingDevice(false);
     }
   }
 
@@ -863,6 +878,33 @@ export default function VPNLandingPage() {
     </div>
   );
 
+  const deleteDeviceModal = devicePendingDelete && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-8">
+      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-2xl">
+        <h2 className="text-2xl font-black">Удалить устройство?</h2>
+        <p className="mt-3 text-sm leading-6 text-slate-600">
+          Конфиг для устройства <span className="font-bold text-slate-950">{devicePendingDelete.name}</span> перестанет работать.
+        </p>
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+          <button
+            onClick={confirmDeleteDevice}
+            disabled={isDeletingDevice}
+            className="rounded-lg bg-red-600 px-5 py-4 text-center font-black text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {isDeletingDevice ? 'Удаляем...' : 'Удалить'}
+          </button>
+          <button
+            onClick={() => setDevicePendingDelete(null)}
+            disabled={isDeletingDevice}
+            className="rounded-lg border border-slate-300 px-5 py-4 font-black text-slate-700 transition hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            Отмена
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   if (profile) {
     const balance = dashboard?.balance;
     const devices = dashboard?.devices || [];
@@ -1083,7 +1125,7 @@ export default function VPNLandingPage() {
                             <button
                               onClick={(event) => {
                                 event.stopPropagation();
-                                deleteDevice(device.id);
+                                requestDeleteDevice(device);
                               }}
                               className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:border-red-300 hover:text-red-700"
                             >
@@ -1188,6 +1230,7 @@ export default function VPNLandingPage() {
         {loginMethodModal}
         {passwordFallbackModal}
         {passwordBackupModal}
+        {deleteDeviceModal}
       </div>
     );
   }
