@@ -52,6 +52,7 @@ app.use(
 
 const PASSWORD_HASH_KEYLEN = 64;
 const PASSWORD_HASH_COST = 16384;
+const REFERRAL_BONUS_KOPECKS = 5000;
 
 const YOOKASSA_WEBHOOK_CIDRS = [
   '185.71.76.0/27',
@@ -474,6 +475,83 @@ function passwordProfile(login) {
   };
 }
 
+async function applyReferralActivation({ referrerUserId, invitedUserId }) {
+  const referrerId = parseControlPlaneAccountId(referrerUserId);
+  const invitedId = parseControlPlaneAccountId(invitedUserId);
+  if (!referrerId || !invitedId || referrerId === invitedId) {
+    return { applied: false, reason: 'invalid_referral' };
+  }
+
+  const referrer = await pool.query(
+    'SELECT user_id FROM passkey_accounts WHERE user_id = $1 LIMIT 1',
+    [String(referrerId)]
+  );
+  if (!referrer.rows[0]) {
+    return { applied: false, reason: 'referrer_not_found' };
+  }
+
+  const inserted = await pool.query(
+    `
+      INSERT INTO referral_activations (referrer_user_id, invited_user_id, bonus_kopecks)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (invited_user_id)
+      DO UPDATE SET status = 'pending', error_text = NULL
+      WHERE referral_activations.status = 'failed'
+      RETURNING id
+    `,
+    [String(referrerId), String(invitedId), REFERRAL_BONUS_KOPECKS]
+  );
+  const activation = inserted.rows[0];
+  if (!activation) {
+    return { applied: false, reason: 'already_activated' };
+  }
+
+  try {
+    await Promise.all([
+      controlPlaneRequest({
+        method: 'POST',
+        path: '/v1/payments/external/confirm',
+        body: {
+          telegram_id: referrerId,
+          amount_kopecks: REFERRAL_BONUS_KOPECKS,
+          external_payment_id: `referral-${invitedId}-referrer`,
+          provider: 'referral'
+        }
+      }),
+      controlPlaneRequest({
+        method: 'POST',
+        path: '/v1/payments/external/confirm',
+        body: {
+          telegram_id: invitedId,
+          amount_kopecks: REFERRAL_BONUS_KOPECKS,
+          external_payment_id: `referral-${invitedId}-invited`,
+          provider: 'referral'
+        }
+      })
+    ]);
+
+    await pool.query(
+      `
+        UPDATE referral_activations
+        SET status = 'awarded', awarded_at = NOW(), error_text = NULL
+        WHERE id = $1
+      `,
+      [activation.id]
+    );
+    return { applied: true, bonus_kopecks: REFERRAL_BONUS_KOPECKS };
+  } catch (error) {
+    await pool.query(
+      `
+        UPDATE referral_activations
+        SET status = 'failed', error_text = $2
+        WHERE id = $1
+      `,
+      [activation.id, error instanceof Error ? error.message : String(error)]
+    );
+    throw error;
+  }
+}
+
 async function savePasskeyChallenge({ type, challenge, userId = null }) {
   const challengeId = crypto.randomUUID();
   await pool.query(
@@ -650,10 +728,22 @@ app.post('/api/password-auth/register', async (req, res) => {
       }
     });
 
+    let referral = null;
+    try {
+      referral = await applyReferralActivation({
+        referrerUserId: req.body?.referrer_user_id,
+        invitedUserId: userId
+      });
+    } catch (referralError) {
+      console.error('password referral activation failed', { message: referralError instanceof Error ? referralError.message : String(referralError) });
+      referral = { applied: false, reason: 'activation_failed' };
+    }
+
     return res.json({
       created: true,
       user_id: userId,
-      profile: passwordProfile(login)
+      profile: passwordProfile(login),
+      referral
     });
   } catch (error) {
     await client?.query('ROLLBACK').catch(() => {});
@@ -874,9 +964,21 @@ app.post('/api/passkeys/registration/verify', async (req, res) => {
       }
     });
 
+    let referral = null;
+    try {
+      referral = await applyReferralActivation({
+        referrerUserId: req.body?.referrer_user_id,
+        invitedUserId: challenge.user_id
+      });
+    } catch (referralError) {
+      console.error('passkey referral activation failed', { message: referralError instanceof Error ? referralError.message : String(referralError) });
+      referral = { applied: false, reason: 'activation_failed' };
+    }
+
     return res.json({
       user_id: challenge.user_id,
-      profile: passkeyProfile(account)
+      profile: passkeyProfile(account),
+      referral
     });
   } catch (error) {
     console.error('passkey registration verify failed', { message: error instanceof Error ? error.message : String(error) });

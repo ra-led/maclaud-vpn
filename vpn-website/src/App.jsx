@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 
 const STORAGE_PROFILE_KEY = 'vpngo_profile';
 const STORAGE_CUSTOMER_KEY = 'vpngo_customer_id';
+const STORAGE_REFERRAL_KEY = 'vpngo_referrer_id';
 const DAILY_PRICE_RUB = 2;
 
 const previewDevices = [
@@ -37,6 +38,11 @@ function createCustomerId() {
 function getStoredCustomerId() {
   const existingId = window.localStorage.getItem(STORAGE_CUSTOMER_KEY);
   return existingId && /^\d+$/.test(existingId) ? existingId : '';
+}
+
+function getStoredReferrerId() {
+  const referrerId = window.localStorage.getItem(STORAGE_REFERRAL_KEY);
+  return referrerId && /^\d+$/.test(referrerId) ? referrerId : '';
 }
 
 function formatRubFromKopecks(value) {
@@ -116,6 +122,8 @@ async function withQrDataUrl(config) {
 export default function VPNLandingPage() {
   const [profile, setProfile] = useState(() => getStoredProfile());
   const [customerId, setCustomerId] = useState(() => getStoredCustomerId());
+  const [referrerId, setReferrerId] = useState(() => getStoredReferrerId());
+  const [isReferralCopied, setIsReferralCopied] = useState(false);
   const [authError, setAuthError] = useState('');
   const [authStatus, setAuthStatus] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
@@ -165,6 +173,20 @@ export default function VPNLandingPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile, customerId]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const referral = params.get('ref');
+    if (referral && /^\d+$/.test(referral)) {
+      window.localStorage.setItem(STORAGE_REFERRAL_KEY, referral);
+      setReferrerId(referral);
+    }
+
+    if (!profile && params.get('login') === '1') {
+      loginWithPasskey();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -222,6 +244,10 @@ export default function VPNLandingPage() {
     setCustomerId(nextCustomerId);
     setProfile(nextProfile);
     setAuthError('');
+    if (referrerId && (referrerId === nextCustomerId || session?.referral)) {
+      window.localStorage.removeItem(STORAGE_REFERRAL_KEY);
+      setReferrerId('');
+    }
     await loadAccount(nextProfile, nextCustomerId);
   }
 
@@ -281,11 +307,12 @@ export default function VPNLandingPage() {
         const registeredSession = await fetch('/api/passkeys/registration/verify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            challenge_id: registrationOptions.challenge_id,
-            response: registrationResponse
-          })
-        }).then(readJson);
+        body: JSON.stringify({
+          challenge_id: registrationOptions.challenge_id,
+          response: registrationResponse,
+          referrer_user_id: referrerId
+        })
+      }).then(readJson);
         await finishPasskeySession(registeredSession);
       } catch (registrationError) {
         openPasswordFallback(userMessage(registrationError, 'Не удалось войти через passkey'));
@@ -342,7 +369,8 @@ export default function VPNLandingPage() {
         body: JSON.stringify({
           login,
           password,
-          user_id: createCustomerId()
+          user_id: createCustomerId(),
+          referrer_user_id: referrerId
         })
       }).then(readJson);
 
@@ -484,6 +512,21 @@ export default function VPNLandingPage() {
     URL.revokeObjectURL(url);
   }
 
+  async function copyReferralLink() {
+    if (!customerId) {
+      return;
+    }
+
+    const referralUrl = `${window.location.origin}/?ref=${encodeURIComponent(customerId)}&login=1`;
+    try {
+      await navigator.clipboard.writeText(referralUrl);
+      setIsReferralCopied(true);
+      window.setTimeout(() => setIsReferralCopied(false), 1800);
+    } catch (_error) {
+      setIsReferralCopied(false);
+    }
+  }
+
   const passwordBackupText = passwordBackup
     ? [
         'VPN-GO доступ',
@@ -497,6 +540,9 @@ export default function VPNLandingPage() {
   const passwordBackupHref = passwordBackup
     ? `data:text/plain;charset=utf-8,${encodeURIComponent(passwordBackupText)}`
     : '#';
+  const referralLink = customerId
+    ? `${window.location.origin}/?ref=${encodeURIComponent(customerId)}&login=1`
+    : '';
 
   const passwordFallbackModal = passwordAuthVisible && (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-8">
@@ -677,6 +723,24 @@ export default function VPNLandingPage() {
                 {daysLeft !== null && daysLeft !== undefined
                   ? ` Баланса хватит примерно на ${daysLeft} ${dayLabel(daysLeft)}.`
                   : ' Добавьте устройство, чтобы увидеть срок работы.'}
+              </div>
+
+              <div className="mt-6 border-t border-slate-200 pt-5">
+                <h2 className="text-lg font-black">Пригласить</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  При активации нового аккаунта по приглашению вы оба получите 50 ₽ на баланс.
+                </p>
+                <div className="mt-4 flex overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                  <div className="min-w-0 flex-1 truncate px-4 py-3 font-mono text-xs text-slate-700">
+                    {referralLink}
+                  </div>
+                  <button
+                    onClick={copyReferralLink}
+                    className="border-l border-slate-200 bg-white px-4 py-3 text-xs font-black text-slate-800 transition hover:bg-slate-100"
+                  >
+                    {isReferralCopied ? 'Скопировано' : 'Копировать'}
+                  </button>
+                </div>
               </div>
             </div>
 

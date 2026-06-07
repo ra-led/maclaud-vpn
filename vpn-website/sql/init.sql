@@ -88,3 +88,17 @@ CREATE TABLE IF NOT EXISTS password_accounts (
 
 CREATE INDEX IF NOT EXISTS ix_password_accounts_user_id
   ON password_accounts (user_id);
+
+CREATE TABLE IF NOT EXISTS referral_activations (
+  id BIGSERIAL PRIMARY KEY,
+  referrer_user_id TEXT NOT NULL,
+  invited_user_id TEXT NOT NULL UNIQUE,
+  bonus_kopecks INTEGER NOT NULL DEFAULT 5000,
+  status TEXT NOT NULL DEFAULT 'pending',
+  error_text TEXT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  awarded_at TIMESTAMPTZ NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_referral_activations_referrer_user_id
+  ON referral_activations (referrer_user_id);
