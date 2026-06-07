@@ -45,3 +45,35 @@ CREATE TABLE IF NOT EXISTS yookassa_webhook_events (
 
 CREATE INDEX IF NOT EXISTS ix_yookassa_webhook_events_payment_id
   ON yookassa_webhook_events (payment_id);
+
+CREATE TABLE IF NOT EXISTS passkey_accounts (
+  user_id TEXT PRIMARY KEY,
+  display_name TEXT NOT NULL DEFAULT 'Пользователь VPN-GO',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_login_at TIMESTAMPTZ NULL
+);
+
+CREATE TABLE IF NOT EXISTS passkey_credentials (
+  credential_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES passkey_accounts(user_id) ON DELETE CASCADE,
+  public_key TEXT NOT NULL,
+  counter BIGINT NOT NULL DEFAULT 0,
+  transports TEXT[] NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_used_at TIMESTAMPTZ NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_passkey_credentials_user_id
+  ON passkey_credentials (user_id);
+
+CREATE TABLE IF NOT EXISTS passkey_challenges (
+  challenge_id TEXT PRIMARY KEY,
+  challenge TEXT NOT NULL,
+  type TEXT NOT NULL,
+  user_id TEXT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '10 minutes'
+);
+
+CREATE INDEX IF NOT EXISTS ix_passkey_challenges_expires_at
+  ON passkey_challenges (expires_at);

@@ -1,5 +1,6 @@
 import QRCode from 'qrcode';
-import { useEffect, useMemo, useState } from 'react';
+import { browserSupportsWebAuthn, startAuthentication, startRegistration } from '@simplewebauthn/browser';
+import { useEffect, useState } from 'react';
 
 const STORAGE_PROFILE_KEY = 'vpngo_profile';
 const STORAGE_CUSTOMER_KEY = 'vpngo_customer_id';
@@ -21,13 +22,14 @@ function getStoredProfile() {
 }
 
 function createCustomerId() {
-  const existingId = window.localStorage.getItem(STORAGE_CUSTOMER_KEY);
-  if (existingId && /^\d+$/.test(existingId)) {
-    return existingId;
-  }
   const created = String(Math.floor(Date.now() + Math.random() * 1_000_000));
   window.localStorage.setItem(STORAGE_CUSTOMER_KEY, created);
   return created;
+}
+
+function getStoredCustomerId() {
+  const existingId = window.localStorage.getItem(STORAGE_CUSTOMER_KEY);
+  return existingId && /^\d+$/.test(existingId) ? existingId : '';
 }
 
 function formatRubFromKopecks(value) {
@@ -106,12 +108,10 @@ async function withQrDataUrl(config) {
 }
 
 export default function VPNLandingPage() {
-  const [authMode, setAuthMode] = useState(null);
   const [profile, setProfile] = useState(() => getStoredProfile());
-  const [form, setForm] = useState({
-    name: getStoredProfile()?.name || '',
-    email: getStoredProfile()?.email || ''
-  });
+  const [customerId, setCustomerId] = useState(() => getStoredCustomerId());
+  const [authError, setAuthError] = useState('');
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [dashboard, setDashboard] = useState(null);
   const [isLoadingAccount, setIsLoadingAccount] = useState(false);
   const [accountError, setAccountError] = useState('');
@@ -125,10 +125,8 @@ export default function VPNLandingPage() {
   const [deviceError, setDeviceError] = useState('');
   const [createdConfig, setCreatedConfig] = useState(null);
 
-  const customerId = useMemo(() => createCustomerId(), []);
-
-  async function loadAccount(currentProfile = profile) {
-    if (!currentProfile) {
+  async function loadAccount(currentProfile = profile, currentCustomerId = customerId) {
+    if (!currentProfile || !currentCustomerId) {
       return;
     }
 
@@ -139,7 +137,7 @@ export default function VPNLandingPage() {
         name: currentProfile.name || '',
         email: currentProfile.email || ''
       });
-      const payload = await fetch(`/api/account/${customerId}?${params}`).then(readJson);
+      const payload = await fetch(`/api/account/${currentCustomerId}?${params}`).then(readJson);
       setDashboard(payload);
     } catch (error) {
       setAccountError(userMessage(error, 'Не удалось загрузить личный кабинет'));
@@ -200,25 +198,76 @@ export default function VPNLandingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function openAuth(mode) {
-    setPaymentError('');
-    setAuthMode(mode);
+  async function finishPasskeySession(session) {
+    const nextProfile = {
+      name: session?.profile?.name || 'Пользователь VPN-GO',
+      email: session?.profile?.email || ''
+    };
+    const nextCustomerId = String(session.user_id);
+    window.localStorage.setItem(STORAGE_CUSTOMER_KEY, nextCustomerId);
+    window.localStorage.setItem(STORAGE_PROFILE_KEY, JSON.stringify(nextProfile));
+    setCustomerId(nextCustomerId);
+    setProfile(nextProfile);
+    setAuthError('');
+    await loadAccount(nextProfile, nextCustomerId);
   }
 
-  function submitAuth(event) {
-    event.preventDefault();
-    const nextProfile = {
-      name: form.name.trim() || 'Пользователь VPN-GO',
-      email: form.email.trim() || 'user@example.com'
-    };
-    window.localStorage.setItem(STORAGE_PROFILE_KEY, JSON.stringify(nextProfile));
-    setProfile(nextProfile);
-    setAuthMode(null);
+  async function loginWithPasskey() {
+    setPaymentError('');
+    setAuthError('');
+    if (!browserSupportsWebAuthn()) {
+      setAuthError('Этот браузер не поддерживает вход через passkey');
+      return;
+    }
+
+    setIsAuthenticating(true);
+    try {
+      const authOptions = await fetch('/api/passkeys/authentication/options', {
+        method: 'POST'
+      }).then(readJson);
+      const authResponse = await startAuthentication({ optionsJSON: authOptions.options });
+      const verifiedSession = await fetch('/api/passkeys/authentication/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          challenge_id: authOptions.challenge_id,
+          response: authResponse
+        })
+      }).then(readJson);
+      await finishPasskeySession(verifiedSession);
+    } catch (_loginError) {
+      try {
+        const registrationOptions = await fetch('/api/passkeys/registration/options', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: createCustomerId(),
+            display_name: 'Пользователь VPN-GO'
+          })
+        }).then(readJson);
+        const registrationResponse = await startRegistration({ optionsJSON: registrationOptions.options });
+        const registeredSession = await fetch('/api/passkeys/registration/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            challenge_id: registrationOptions.challenge_id,
+            response: registrationResponse
+          })
+        }).then(readJson);
+        await finishPasskeySession(registeredSession);
+      } catch (registrationError) {
+        setAuthError(userMessage(registrationError, 'Не удалось войти через passkey'));
+      }
+    } finally {
+      setIsAuthenticating(false);
+    }
   }
 
   function logout() {
     window.localStorage.removeItem(STORAGE_PROFILE_KEY);
+    window.localStorage.removeItem(STORAGE_CUSTOMER_KEY);
     setProfile(null);
+    setCustomerId('');
     setDashboard(null);
     setCreatedConfig(null);
   }
@@ -359,7 +408,7 @@ export default function VPNLandingPage() {
               </div>
             </a>
             <div className="flex items-center gap-3">
-              <span className="hidden text-sm text-slate-500 sm:inline">{profile.email}</span>
+              <span className="hidden text-sm text-slate-500 sm:inline">Аккаунт #{customerId}</span>
               <button
                 onClick={() => loadAccount()}
                 disabled={isLoadingAccount}
@@ -655,20 +704,15 @@ export default function VPNLandingPage() {
               <div className="text-xs text-slate-500">WireGuard VPN</div>
             </div>
           </a>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => openAuth('login')}
-              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700 transition hover:border-slate-500"
-            >
-              Войти
-            </button>
-            <button
-              onClick={() => openAuth('register')}
-              className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-800"
-            >
-              Регистрация
-            </button>
-          </div>
+          <button
+            onClick={loginWithPasskey}
+            disabled={isAuthenticating}
+            className={`rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-800 ${
+              isAuthenticating ? 'cursor-not-allowed opacity-70' : ''
+            }`}
+          >
+            {isAuthenticating ? 'Открываем...' : 'Вход'}
+          </button>
         </div>
       </header>
 
@@ -687,18 +731,18 @@ export default function VPNLandingPage() {
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <button
-                  onClick={() => openAuth('register')}
+                  onClick={loginWithPasskey}
+                  disabled={isAuthenticating}
                   className="rounded-lg bg-lime-400 px-6 py-4 text-base font-black text-slate-950 transition hover:bg-lime-300"
                 >
-                  Зарегистрироваться
-                </button>
-                <button
-                  onClick={() => openAuth('login')}
-                  className="rounded-lg border border-slate-300 px-6 py-4 text-base font-black text-slate-800 transition hover:border-slate-500 hover:bg-slate-50"
-                >
-                  Войти в личный кабинет
+                  {isAuthenticating ? 'Открываем...' : 'Вход'}
                 </button>
               </div>
+              {authError && (
+                <div className="mt-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {authError}
+                </div>
+              )}
             </div>
 
             <div className="rounded-lg border border-slate-200 bg-slate-950 p-4 shadow-2xl shadow-slate-300">
@@ -759,55 +803,6 @@ export default function VPNLandingPage() {
           <div className="text-slate-500">© 2026 VPN-GO</div>
         </div>
       </footer>
-
-      {authMode && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-8">
-          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-2xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-2xl font-black">
-                  {authMode === 'register' ? 'Регистрация' : 'Вход'}
-                </h2>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  После входа откроется личный кабинет с оплатой и устройствами.
-                </p>
-              </div>
-              <button
-                onClick={() => setAuthMode(null)}
-                className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-black"
-                aria-label="Закрыть"
-              >
-                x
-              </button>
-            </div>
-
-            <form onSubmit={submitAuth} className="mt-6 grid gap-4">
-              <div>
-                <label className="text-sm font-bold text-slate-700">Имя</label>
-                <input
-                  value={form.name}
-                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-                  className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-slate-950"
-                  placeholder="Юрий"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-bold text-slate-700">Email</label>
-                <input
-                  value={form.email}
-                  onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
-                  type="email"
-                  className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-slate-950"
-                  placeholder="you@example.com"
-                />
-              </div>
-              <button className="rounded-lg bg-lime-400 px-5 py-4 font-black text-slate-950 transition hover:bg-lime-300">
-                {authMode === 'register' ? 'Создать аккаунт' : 'Войти'}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

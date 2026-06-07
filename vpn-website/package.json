@@ -10,6 +10,8 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "@simplewebauthn/browser": "^13.3.0",
+    "@simplewebauthn/server": "^13.3.1",
     "express": "^4.21.2",
     "ipaddr.js": "^2.2.0",
     "pg": "^8.13.1",

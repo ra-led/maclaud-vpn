@@ -1,6 +1,12 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  generateAuthenticationOptions,
+  generateRegistrationOptions,
+  verifyAuthenticationResponse,
+  verifyRegistrationResponse
+} from '@simplewebauthn/server';
 import express from 'express';
 import ipaddr from 'ipaddr.js';
 import { initDb, pool, closeDb } from './db.js';
@@ -17,6 +23,10 @@ const TRUST_PROXY = process.env.TRUST_PROXY || '1';
 const CONTROL_PLANE_API_URL = process.env.CONTROL_PLANE_API_URL || 'http://host.docker.internal:8000';
 const CONTROL_PLANE_INTERNAL_TOKEN = process.env.CONTROL_PLANE_INTERNAL_TOKEN;
 const CONTROL_PLANE_SYNC_ENABLED = process.env.CONTROL_PLANE_SYNC_ENABLED !== 'false';
+const PUBLIC_BASE_URL = new URL(BASE_URL);
+const WEBAUTHN_RP_ID = process.env.WEBAUTHN_RP_ID || PUBLIC_BASE_URL.hostname;
+const WEBAUTHN_RP_NAME = process.env.WEBAUTHN_RP_NAME || 'VPN-GO';
+const WEBAUTHN_ORIGIN = process.env.WEBAUTHN_ORIGIN || PUBLIC_BASE_URL.origin;
 const ENFORCE_IP_FILTER =
   process.env.YOOKASSA_ENFORCE_IP_FILTER === 'true' ||
   (process.env.YOOKASSA_ENFORCE_IP_FILTER !== 'false' && NODE_ENV === 'production');
@@ -398,6 +408,59 @@ async function getWebsitePaymentsForUser(userId) {
   return result.rows.map(mapPaymentRow);
 }
 
+function createControlPlaneAccountId() {
+  return String(Date.now() + crypto.randomInt(100_000, 999_999));
+}
+
+function normalizeDisplayName(value) {
+  if (typeof value !== 'string') {
+    return 'Пользователь VPN-GO';
+  }
+  const trimmed = value.trim();
+  return trimmed || 'Пользователь VPN-GO';
+}
+
+async function savePasskeyChallenge({ type, challenge, userId = null }) {
+  const challengeId = crypto.randomUUID();
+  await pool.query(
+    `
+      INSERT INTO passkey_challenges (challenge_id, challenge, type, user_id)
+      VALUES ($1, $2, $3, $4)
+    `,
+    [challengeId, challenge, type, userId ? String(userId) : null]
+  );
+  return challengeId;
+}
+
+async function consumePasskeyChallenge({ challengeId, type }) {
+  const result = await pool.query(
+    `
+      DELETE FROM passkey_challenges
+      WHERE challenge_id = $1
+        AND type = $2
+        AND expires_at > NOW()
+      RETURNING *
+    `,
+    [challengeId, type]
+  );
+  return result.rows[0] || null;
+}
+
+function passkeyProfile(row) {
+  return {
+    name: row?.display_name || 'Пользователь VPN-GO',
+    email: ''
+  };
+}
+
+function transportsFromResponse(response) {
+  const transports = response?.response?.transports;
+  if (!Array.isArray(transports)) {
+    return null;
+  }
+  return transports.filter((transport) => typeof transport === 'string');
+}
+
 function sendApiError(res, error, fallback = 'Unexpected API error') {
   const status = Number.isInteger(error?.status) ? error.status : 500;
   return res.status(status).json({
@@ -405,6 +468,221 @@ function sendApiError(res, error, fallback = 'Unexpected API error') {
     detail: error?.payload || null
   });
 }
+
+app.post('/api/passkeys/authentication/options', async (_req, res) => {
+  try {
+    const options = await generateAuthenticationOptions({
+      rpID: WEBAUTHN_RP_ID,
+      userVerification: 'preferred'
+    });
+    const challengeId = await savePasskeyChallenge({
+      type: 'authentication',
+      challenge: options.challenge
+    });
+    return res.json({ challenge_id: challengeId, options });
+  } catch (error) {
+    console.error('passkey authentication options failed', { message: error instanceof Error ? error.message : String(error) });
+    return sendApiError(res, error, 'Failed to start passkey authentication');
+  }
+});
+
+app.post('/api/passkeys/authentication/verify', async (req, res) => {
+  const challengeId = typeof req.body?.challenge_id === 'string' ? req.body.challenge_id : '';
+  const response = req.body?.response;
+  if (!challengeId || !response?.id) {
+    return res.status(400).json({ error: 'Invalid passkey authentication request' });
+  }
+
+  try {
+    const challenge = await consumePasskeyChallenge({
+      challengeId,
+      type: 'authentication'
+    });
+    if (!challenge) {
+      return res.status(400).json({ error: 'Passkey challenge expired' });
+    }
+
+    const credentialResult = await pool.query(
+      `
+        SELECT c.*, a.display_name
+        FROM passkey_credentials c
+        JOIN passkey_accounts a ON a.user_id = c.user_id
+        WHERE c.credential_id = $1
+        LIMIT 1
+      `,
+      [response.id]
+    );
+    const credentialRow = credentialResult.rows[0];
+    if (!credentialRow) {
+      return res.status(404).json({ error: 'Passkey was not found' });
+    }
+
+    const verification = await verifyAuthenticationResponse({
+      response,
+      expectedChallenge: challenge.challenge,
+      expectedOrigin: WEBAUTHN_ORIGIN,
+      expectedRPID: WEBAUTHN_RP_ID,
+      credential: {
+        id: credentialRow.credential_id,
+        publicKey: Buffer.from(credentialRow.public_key, 'base64url'),
+        counter: Number(credentialRow.counter || 0),
+        transports: credentialRow.transports || undefined
+      },
+      requireUserVerification: false
+    });
+
+    if (!verification.verified) {
+      return res.status(401).json({ error: 'Passkey verification failed' });
+    }
+
+    await pool.query(
+      `
+        UPDATE passkey_credentials
+        SET counter = $2, last_used_at = NOW()
+        WHERE credential_id = $1
+      `,
+      [credentialRow.credential_id, verification.authenticationInfo.newCounter]
+    );
+    await pool.query(
+      'UPDATE passkey_accounts SET last_login_at = NOW() WHERE user_id = $1',
+      [credentialRow.user_id]
+    );
+
+    return res.json({
+      user_id: credentialRow.user_id,
+      profile: passkeyProfile(credentialRow)
+    });
+  } catch (error) {
+    console.error('passkey authentication verify failed', { message: error instanceof Error ? error.message : String(error) });
+    return sendApiError(res, error, 'Failed to verify passkey authentication');
+  }
+});
+
+app.post('/api/passkeys/registration/options', async (req, res) => {
+  const userId = parseControlPlaneAccountId(req.body?.user_id) || Number(createControlPlaneAccountId());
+  const displayName = normalizeDisplayName(req.body?.display_name);
+
+  try {
+    await pool.query(
+      `
+        INSERT INTO passkey_accounts (user_id, display_name)
+        VALUES ($1, $2)
+        ON CONFLICT (user_id)
+        DO UPDATE SET display_name = EXCLUDED.display_name
+      `,
+      [String(userId), displayName]
+    );
+
+    const existingCredentials = await pool.query(
+      'SELECT credential_id, transports FROM passkey_credentials WHERE user_id = $1',
+      [String(userId)]
+    );
+
+    const options = await generateRegistrationOptions({
+      rpName: WEBAUTHN_RP_NAME,
+      rpID: WEBAUTHN_RP_ID,
+      userID: Buffer.from(String(userId)),
+      userName: `vpn-go-${userId}`,
+      userDisplayName: displayName,
+      attestationType: 'none',
+      authenticatorSelection: {
+        residentKey: 'required',
+        userVerification: 'preferred'
+      },
+      excludeCredentials: existingCredentials.rows.map((credential) => ({
+        id: credential.credential_id,
+        transports: credential.transports || undefined
+      }))
+    });
+
+    const challengeId = await savePasskeyChallenge({
+      type: 'registration',
+      challenge: options.challenge,
+      userId
+    });
+    return res.json({ challenge_id: challengeId, user_id: String(userId), options });
+  } catch (error) {
+    console.error('passkey registration options failed', { message: error instanceof Error ? error.message : String(error) });
+    return sendApiError(res, error, 'Failed to start passkey registration');
+  }
+});
+
+app.post('/api/passkeys/registration/verify', async (req, res) => {
+  const challengeId = typeof req.body?.challenge_id === 'string' ? req.body.challenge_id : '';
+  const response = req.body?.response;
+  if (!challengeId || !response?.id) {
+    return res.status(400).json({ error: 'Invalid passkey registration request' });
+  }
+
+  try {
+    const challenge = await consumePasskeyChallenge({
+      challengeId,
+      type: 'registration'
+    });
+    if (!challenge?.user_id) {
+      return res.status(400).json({ error: 'Passkey challenge expired' });
+    }
+
+    const verification = await verifyRegistrationResponse({
+      response,
+      expectedChallenge: challenge.challenge,
+      expectedOrigin: WEBAUTHN_ORIGIN,
+      expectedRPID: WEBAUTHN_RP_ID,
+      requireUserVerification: false
+    });
+
+    if (!verification.verified) {
+      return res.status(401).json({ error: 'Passkey registration failed' });
+    }
+
+    const credential = verification.registrationInfo.credential;
+    const transports = transportsFromResponse(response) || credential.transports || null;
+    await pool.query(
+      `
+        INSERT INTO passkey_credentials (credential_id, user_id, public_key, counter, transports)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (credential_id)
+        DO UPDATE SET
+          user_id = EXCLUDED.user_id,
+          public_key = EXCLUDED.public_key,
+          counter = EXCLUDED.counter,
+          transports = EXCLUDED.transports,
+          last_used_at = NOW()
+      `,
+      [
+        credential.id,
+        challenge.user_id,
+        Buffer.from(credential.publicKey).toString('base64url'),
+        credential.counter,
+        transports
+      ]
+    );
+
+    const accountResult = await pool.query(
+      'UPDATE passkey_accounts SET last_login_at = NOW() WHERE user_id = $1 RETURNING *',
+      [challenge.user_id]
+    );
+    const account = accountResult.rows[0];
+
+    await controlPlaneRequest({
+      method: 'POST',
+      path: '/v1/users',
+      body: {
+        telegram_id: Number(challenge.user_id),
+        username: null,
+        first_name: account.display_name
+      }
+    });
+
+    return res.json({
+      user_id: challenge.user_id,
+      profile: passkeyProfile(account)
+    });
+  } catch (error) {
+    console.error('passkey registration verify failed', { message: error instanceof Error ? error.message : String(error) });
+    return sendApiError(res, error, 'Failed to verify passkey registration');
+  }
+});
 
 app.get('/api/account/:userId', async (req, res) => {
   const accountId = parseControlPlaneAccountId(req.params.userId);
