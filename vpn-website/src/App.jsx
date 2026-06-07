@@ -873,7 +873,6 @@ export default function VPNLandingPage() {
               </div>
             </a>
             <div className="flex items-center gap-3">
-              <span className="hidden text-sm text-slate-500 sm:inline">Аккаунт #{customerId}</span>
               <button
                 onClick={() => loadAccount()}
                 disabled={isLoadingAccount}
@@ -999,9 +998,6 @@ export default function VPNLandingPage() {
               <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
                 <div>
                   <h1 className="text-2xl font-black">Здравствуйте, {profile.name}</h1>
-                  <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                    Аккаунт #{customerId}. Здесь отображаются реальные баланс, устройства и платежи.
-                  </p>
                 </div>
               </div>
 
