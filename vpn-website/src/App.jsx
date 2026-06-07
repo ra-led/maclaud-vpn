@@ -257,7 +257,7 @@ export default function VPNLandingPage() {
   const [isPaying, setIsPaying] = useState(false);
   const [paymentError, setPaymentError] = useState('');
   const [paymentReturn, setPaymentReturn] = useState(null);
-  const [topUpAmount, setTopUpAmount] = useState('300');
+  const [topUpAmount, setTopUpAmount] = useState('150');
   const [deviceName, setDeviceName] = useState('');
   const [isCreatingDevice, setIsCreatingDevice] = useState(false);
   const [loadingConfigDeviceId, setLoadingConfigDeviceId] = useState(null);
@@ -576,8 +576,8 @@ export default function VPNLandingPage() {
 
   async function createPayment() {
     const amountRub = Number(String(topUpAmount).replace(',', '.'));
-    if (!Number.isFinite(amountRub) || amountRub <= 0) {
-      setPaymentError('Введите сумму пополнения больше 0 ₽');
+    if (!Number.isFinite(amountRub) || amountRub < 30) {
+      setPaymentError('Минимальная сумма пополнения 30 ₽');
       return;
     }
 
@@ -1090,30 +1090,23 @@ export default function VPNLandingPage() {
 
               <div className="mt-6 border-t border-slate-200 pt-5">
                 <h2 className="text-lg font-black">Пополнить баланс</h2>
-                <div className="mt-4 grid grid-cols-3 gap-2">
-                  {['150', '300', '900'].map((amount) => (
-                    <button
-                      key={amount}
-                      onClick={() => setTopUpAmount(amount)}
-                      className={`rounded-lg border px-3 py-3 text-sm font-bold transition ${
-                        topUpAmount === amount
-                          ? 'border-slate-950 bg-slate-950 text-white'
-                          : 'border-slate-200 bg-white hover:border-slate-400'
-                      }`}
-                    >
-                      {amount} ₽
-                    </button>
-                  ))}
-                </div>
-
-                <label className="mt-5 block text-sm font-semibold text-slate-700">
+                <label className="mt-4 block text-sm font-semibold text-slate-700">
                   Сумма пополнения
                 </label>
                 <div className="mt-2 flex min-w-0 rounded-lg border border-slate-300 bg-white focus-within:border-slate-950">
                   <input
+                    type="number"
                     value={topUpAmount}
                     onChange={(event) => setTopUpAmount(event.target.value)}
-                    inputMode="decimal"
+                    onBlur={() => {
+                      const amountRub = Number(String(topUpAmount).replace(',', '.'));
+                      if (!Number.isFinite(amountRub) || amountRub < 30) {
+                        setTopUpAmount('30');
+                      }
+                    }}
+                    min="30"
+                    step="1"
+                    inputMode="numeric"
                     className="min-w-0 flex-1 rounded-lg px-4 py-3 text-lg font-bold outline-none"
                   />
                   <div className="px-4 py-3 text-lg font-bold text-slate-500">₽</div>
@@ -1159,13 +1152,7 @@ export default function VPNLandingPage() {
 
           <section className="min-w-0 space-y-6">
             <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-              <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-                <div>
-                  <h1 className="text-2xl font-black">Здравствуйте, {profile.name}</h1>
-                </div>
-              </div>
-
-              <div className="mt-6 grid gap-3 sm:grid-cols-[1fr_auto]">
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
                 <input
                   value={deviceName}
                   onChange={(event) => setDeviceName(event.target.value)}
