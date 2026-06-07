@@ -50,7 +50,9 @@ app.use(
   })
 );
 
-const REFERRAL_BONUS_KOPECKS = 5000;
+const REFERRAL_BONUS_KOPECKS = 1000;
+const ACCOUNT_COOKIE_NAME = 'vpngo_account_id';
+const ACCOUNT_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 
 const YOOKASSA_WEBHOOK_CIDRS = [
   '185.71.76.0/27',
@@ -425,11 +427,78 @@ function normalizeDisplayName(value) {
   return trimmed || 'Пользователь VPN-GO';
 }
 
-async function applyReferralActivation({ referrerUserId, invitedUserId }) {
+function parseCookies(cookieHeader = '') {
+  return cookieHeader
+    .split(';')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .reduce((cookies, part) => {
+      const separatorIndex = part.indexOf('=');
+      if (separatorIndex === -1) {
+        return cookies;
+      }
+      const name = part.slice(0, separatorIndex).trim();
+      const value = part.slice(separatorIndex + 1);
+      try {
+        cookies[name] = decodeURIComponent(value);
+      } catch (_error) {
+        cookies[name] = value;
+      }
+      return cookies;
+    }, {});
+}
+
+function getAccountCookie(req) {
+  const cookies = parseCookies(req.headers.cookie || '');
+  return parseControlPlaneAccountId(cookies[ACCOUNT_COOKIE_NAME]);
+}
+
+function setAccountCookie(res, userId) {
+  const accountId = parseControlPlaneAccountId(userId);
+  if (!accountId) {
+    return;
+  }
+
+  const attrs = [
+    `${ACCOUNT_COOKIE_NAME}=${encodeURIComponent(String(accountId))}`,
+    `Max-Age=${ACCOUNT_COOKIE_MAX_AGE_SECONDS}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax'
+  ];
+  if (NODE_ENV === 'production') {
+    attrs.push('Secure');
+  }
+  res.setHeader('Set-Cookie', attrs.join('; '));
+}
+
+async function getPasskeyAccount(userId) {
+  const accountId = parseControlPlaneAccountId(userId);
+  if (!accountId) {
+    return null;
+  }
+
+  const result = await pool.query(
+    'SELECT * FROM passkey_accounts WHERE user_id = $1 LIMIT 1',
+    [String(accountId)]
+  );
+  return result.rows[0] || null;
+}
+
+async function getDeviceCookieAccount(req) {
+  const accountId = getAccountCookie(req);
+  return getPasskeyAccount(accountId);
+}
+
+async function applyReferralActivation({ referrerUserId, invitedUserId, existingDeviceUserId = null }) {
   const referrerId = parseControlPlaneAccountId(referrerUserId);
   const invitedId = parseControlPlaneAccountId(invitedUserId);
+  const existingDeviceId = parseControlPlaneAccountId(existingDeviceUserId);
   if (!referrerId || !invitedId || referrerId === invitedId) {
     return { applied: false, reason: 'invalid_referral' };
+  }
+  if (existingDeviceId) {
+    return { applied: false, reason: 'same_device_cookie' };
   }
 
   const referrer = await pool.query(
@@ -632,11 +701,25 @@ app.post('/api/passkeys/authentication/verify', async (req, res) => {
       `,
       [credentialRow.credential_id, verification.authenticationInfo.newCounter]
     );
+    const deviceCookieAccount = await getDeviceCookieAccount(req);
+    if (deviceCookieAccount && String(deviceCookieAccount.user_id) !== String(credentialRow.user_id)) {
+      await pool.query(
+        'UPDATE passkey_accounts SET last_login_at = NOW() WHERE user_id = $1',
+        [deviceCookieAccount.user_id]
+      );
+      setAccountCookie(res, deviceCookieAccount.user_id);
+      return res.json({
+        user_id: deviceCookieAccount.user_id,
+        profile: passkeyProfile(deviceCookieAccount),
+        device_cookie_account: true
+      });
+    }
+
     await pool.query(
       'UPDATE passkey_accounts SET last_login_at = NOW() WHERE user_id = $1',
       [credentialRow.user_id]
     );
-
+    setAccountCookie(res, credentialRow.user_id);
     return res.json({
       user_id: credentialRow.user_id,
       profile: passkeyProfile(credentialRow)
@@ -648,18 +731,23 @@ app.post('/api/passkeys/authentication/verify', async (req, res) => {
 });
 
 app.post('/api/passkeys/registration/options', async (req, res) => {
-  const userId = parseControlPlaneAccountId(req.body?.user_id) || Number(createControlPlaneAccountId());
-  const displayName = normalizeDisplayName(req.body?.display_name);
-
   try {
+    const deviceCookieAccount = await getDeviceCookieAccount(req);
+    const userId = Number(deviceCookieAccount?.user_id || parseControlPlaneAccountId(req.body?.user_id) || createControlPlaneAccountId());
+    const displayName = normalizeDisplayName(req.body?.display_name);
+    const shouldUpdateDisplayName = !deviceCookieAccount;
+
     await pool.query(
       `
         INSERT INTO passkey_accounts (user_id, display_name)
         VALUES ($1, $2)
         ON CONFLICT (user_id)
-        DO UPDATE SET display_name = EXCLUDED.display_name
+        DO UPDATE SET display_name = CASE
+          WHEN $3 THEN EXCLUDED.display_name
+          ELSE passkey_accounts.display_name
+        END
       `,
-      [String(userId), displayName]
+      [String(userId), displayName, shouldUpdateDisplayName]
     );
 
     const existingCredentials = await pool.query(
@@ -769,13 +857,15 @@ app.post('/api/passkeys/registration/verify', async (req, res) => {
     try {
       referral = await applyReferralActivation({
         referrerUserId: req.body?.referrer_user_id,
-        invitedUserId: challenge.user_id
+        invitedUserId: challenge.user_id,
+        existingDeviceUserId: getAccountCookie(req)
       });
     } catch (referralError) {
       console.error('passkey referral activation failed', { message: referralError instanceof Error ? referralError.message : String(referralError) });
       referral = { applied: false, reason: 'activation_failed' };
     }
 
+    setAccountCookie(res, challenge.user_id);
     return res.json({
       user_id: challenge.user_id,
       profile: passkeyProfile(account),

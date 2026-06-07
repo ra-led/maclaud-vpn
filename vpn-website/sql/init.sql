@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS referral_activations (
   id BIGSERIAL PRIMARY KEY,
   referrer_user_id TEXT NOT NULL,
   invited_user_id TEXT NOT NULL UNIQUE,
-  bonus_kopecks INTEGER NOT NULL DEFAULT 5000,
+  bonus_kopecks INTEGER NOT NULL DEFAULT 1000,
   status TEXT NOT NULL DEFAULT 'pending',
   error_text TEXT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
