@@ -1358,8 +1358,18 @@ export default function VPNLandingPage() {
               <p className="mt-6 max-w-xl text-lg leading-8 text-slate-600">
                 Зарегистрируйтесь, пополните баланс в личном кабинете и подключайте устройства через AmneziaWG.
               </p>
-              <div className="mt-8 grid gap-3 sm:grid-cols-[minmax(18rem,24rem)_auto] sm:items-center">
-                <div className="flex min-h-12 items-center text-sm font-black uppercase leading-5 text-slate-700 sm:h-14">
+              <div className="mt-8 grid max-w-xl gap-3 sm:grid-cols-[10.75rem_minmax(0,1fr)] sm:items-center">
+                <button
+                  onClick={openLoginConsent}
+                  disabled={isAuthenticating}
+                  className="inline-flex h-14 w-full items-center justify-center gap-3 rounded-lg bg-lime-400 px-5 text-base font-black text-slate-950 transition hover:bg-lime-300 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {isAuthenticating && (
+                    <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-950/30 border-t-slate-950" />
+                  )}
+                  {isAuthenticating ? 'Открываем...' : 'Подключить'}
+                </button>
+                <div className="flex min-h-12 min-w-0 items-center text-sm font-black uppercase leading-5 text-slate-700 sm:h-14">
                   <span
                     key={heroBenefits[heroBenefitIndex]}
                     className="hero-benefit-text block max-w-full"
@@ -1367,16 +1377,6 @@ export default function VPNLandingPage() {
                     {heroBenefits[heroBenefitIndex]}
                   </span>
                 </div>
-                <button
-                  onClick={openLoginConsent}
-                  disabled={isAuthenticating}
-                  className="inline-flex h-14 items-center justify-center gap-3 rounded-lg bg-lime-400 px-6 text-base font-black text-slate-950 transition hover:bg-lime-300 disabled:cursor-not-allowed disabled:opacity-70"
-                >
-                  {isAuthenticating && (
-                    <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-950/30 border-t-slate-950" />
-                  )}
-                  {isAuthenticating ? 'Открываем...' : 'Подключить'}
-                </button>
               </div>
               {authStatus && (
                 <div className="mt-4 text-sm font-semibold text-slate-600">{authStatus}...</div>
