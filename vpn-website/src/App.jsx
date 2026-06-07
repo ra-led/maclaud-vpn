@@ -9,10 +9,10 @@ const STORAGE_REFERRAL_KEY = 'vpngo_referrer_id';
 const DAILY_PRICE_RUB = 5;
 
 const appDownloadLinks = [
-  { label: 'Windows', mark: 'Win', href: 'https://github.com/amnezia-vpn/amnezia-client/releases/download/4.8.15.4/AmneziaVPN_4.8.15.4_x64.exe' },
-  { label: 'macOS', mark: 'mac', href: 'https://apps.apple.com/us/app/amneziawg/id6478942365?platform=mac' },
-  { label: 'iOS', mark: 'iOS', href: 'https://apps.apple.com/us/app/amneziawg/id6478942365' },
-  { label: 'Android', mark: 'And', href: 'https://play.google.com/store/apps/details?id=org.amnezia.awg' }
+  { label: 'Android', icon: 'android', href: 'https://play.google.com/store/apps/details?id=org.amnezia.awg' },
+  { label: 'iOS', icon: 'ios', href: 'https://apps.apple.com/us/app/amneziawg/id6478942365' },
+  { label: 'Windows', icon: 'windows', href: 'https://github.com/amnezia-vpn/amnezia-client/releases/download/4.8.15.4/AmneziaVPN_4.8.15.4_x64.exe' },
+  { label: 'MacOS', icon: 'macos', href: 'https://apps.apple.com/us/app/amneziawg/id6478942365?platform=mac' }
 ];
 
 const heroBenefits = [
@@ -70,6 +70,64 @@ function statusLabel(status) {
     banned: 'Заблокировано',
     deleted: 'Удалено'
   }[status] || status;
+}
+
+function PlatformIcon({ name }) {
+  const commonProps = {
+    className: 'h-4 w-4',
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 2,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    'aria-hidden': 'true'
+  };
+
+  if (name === 'android') {
+    return (
+      <svg {...commonProps}>
+        <path d="M7 10h10v7a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-7Z" />
+        <path d="M9 10V8a3 3 0 0 1 6 0v2" />
+        <path d="M8 5 6.5 3.5" />
+        <path d="m16 5 1.5-1.5" />
+        <path d="M5 11v5" />
+        <path d="M19 11v5" />
+        <path d="M10 14h.01" />
+        <path d="M14 14h.01" />
+      </svg>
+    );
+  }
+
+  if (name === 'ios') {
+    return (
+      <svg {...commonProps}>
+        <rect x="8" y="3" width="8" height="18" rx="2" />
+        <path d="M11 6h2" />
+        <path d="M12 18h.01" />
+      </svg>
+    );
+  }
+
+  if (name === 'windows') {
+    return (
+      <svg {...commonProps}>
+        <path d="M4 5.5 11 4v7H4V5.5Z" />
+        <path d="M13 3.6 20 2v9h-7V3.6Z" />
+        <path d="M4 13h7v7l-7-1.5V13Z" />
+        <path d="M13 13h7v9l-7-1.6V13Z" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg {...commonProps}>
+      <path d="M5 6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5V15H5V6.5Z" />
+      <path d="M3 18h18" />
+      <path d="M9 18h6" />
+      <path d="M12 7.5h.01" />
+    </svg>
+  );
 }
 
 function paymentStatusClass(status) {
@@ -1233,8 +1291,8 @@ export default function VPNLandingPage() {
                                         rel="noreferrer"
                                         className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-black text-emerald-900 transition hover:border-emerald-400"
                                       >
-                                        <span className="flex h-6 min-w-8 items-center justify-center rounded bg-emerald-100 px-1 text-[10px] text-emerald-800">
-                                          {link.mark}
+                                        <span className="flex h-7 w-7 items-center justify-center rounded bg-emerald-100 text-emerald-800">
+                                          <PlatformIcon name={link.icon} />
                                         </span>
                                         {link.label}
                                       </a>
