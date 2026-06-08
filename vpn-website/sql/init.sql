@@ -122,3 +122,13 @@ CREATE INDEX IF NOT EXISTS ix_referral_visitors_user_id
 CREATE INDEX IF NOT EXISTS ix_referral_visitors_guard_token_hash
   ON referral_visitors (guard_token_hash)
   WHERE guard_token_hash IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS account_visitors (
+  visitor_key TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES passkey_accounts(user_id) ON DELETE CASCADE,
+  first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_account_visitors_user_id
+  ON account_visitors (user_id);

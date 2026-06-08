@@ -500,10 +500,27 @@ function setReferralGuardCookie(res, token) {
   setCookie(res, REFERRAL_GUARD_COOKIE_NAME, token, REFERRAL_GUARD_COOKIE_MAX_AGE_SECONDS);
 }
 
-function referralVisitorKey(req, referrerId) {
+function requestVisitorKey(req) {
   const ip = normalizeIp(getClientIp(req)) || '';
-  const userAgent = String(req.headers['user-agent'] || '').trim().toLowerCase().slice(0, 500);
-  return sha256Hex(`${referrerId}|${ip}|${userAgent}`);
+  const headerNames = [
+    'user-agent',
+    'accept-language',
+    'sec-ch-ua',
+    'sec-ch-ua-mobile',
+    'sec-ch-ua-platform',
+    'sec-ch-ua-platform-version',
+    'sec-ch-ua-arch',
+    'sec-ch-ua-bitness',
+    'sec-ch-ua-model'
+  ];
+  const headers = headerNames
+    .map((name) => `${name}:${String(req.headers[name] || '').trim().toLowerCase().slice(0, 500)}`)
+    .join('|');
+  return sha256Hex(`${ip}|${headers}`);
+}
+
+function referralVisitorKey(req, referrerId) {
+  return sha256Hex(`${referrerId}|${requestVisitorKey(req)}`);
 }
 
 async function getPasskeyAccount(userId) {
@@ -524,12 +541,47 @@ async function getDeviceCookieAccount(req) {
   return getPasskeyAccount(accountId);
 }
 
+async function rememberAccountVisitor(req, userId) {
+  const accountId = parseControlPlaneAccountId(userId);
+  if (!accountId) {
+    return;
+  }
+
+  await pool.query(
+    `
+      INSERT INTO account_visitors (visitor_key, user_id)
+      VALUES ($1, $2)
+      ON CONFLICT (visitor_key)
+      DO UPDATE SET last_seen_at = NOW()
+    `,
+    [requestVisitorKey(req), String(accountId)]
+  );
+}
+
+async function getVisitorAccount(req) {
+  const result = await pool.query(
+    `
+      SELECT a.*
+      FROM account_visitors av
+      JOIN passkey_accounts a ON a.user_id = av.user_id
+      WHERE av.visitor_key = $1
+      LIMIT 1
+    `,
+    [requestVisitorKey(req)]
+  );
+  return result.rows[0] || null;
+}
+
 async function resolveExistingReferralAccount(req, claimedUserId = null) {
   const cookieAccount = await getDeviceCookieAccount(req);
   if (cookieAccount) {
     return cookieAccount;
   }
-  return getPasskeyAccount(claimedUserId);
+  const claimedAccount = await getPasskeyAccount(claimedUserId);
+  if (claimedAccount) {
+    return claimedAccount;
+  }
+  return getVisitorAccount(req);
 }
 
 async function prepareReferralVisitor({ req, res, referrerUserId, existingUserId = null }) {
@@ -564,6 +616,7 @@ async function prepareReferralVisitor({ req, res, referrerUserId, existingUserId
   );
   setReferralGuardCookie(res, token);
   if (existingAccount) {
+    await rememberAccountVisitor(req, existingAccount.user_id);
     setAccountCookie(res, existingAccount.user_id);
   }
   return { ok: true, known_account: Boolean(existingAccount) };
@@ -910,6 +963,7 @@ app.post('/api/passkeys/authentication/verify', async (req, res) => {
         'UPDATE passkey_accounts SET last_login_at = NOW() WHERE user_id = $1',
         [deviceCookieAccount.user_id]
       );
+      await rememberAccountVisitor(req, deviceCookieAccount.user_id);
       setAccountCookie(res, deviceCookieAccount.user_id);
       return res.json({
         user_id: deviceCookieAccount.user_id,
@@ -922,6 +976,7 @@ app.post('/api/passkeys/authentication/verify', async (req, res) => {
       'UPDATE passkey_accounts SET last_login_at = NOW() WHERE user_id = $1',
       [credentialRow.user_id]
     );
+    await rememberAccountVisitor(req, credentialRow.user_id);
     setAccountCookie(res, credentialRow.user_id);
     return res.json({
       user_id: credentialRow.user_id,
@@ -1108,6 +1163,7 @@ app.post('/api/passkeys/registration/verify', async (req, res) => {
       referrerUserId: requestedReferrerId,
       userId: challenge.user_id
     });
+    await rememberAccountVisitor(req, challenge.user_id);
     setAccountCookie(res, challenge.user_id);
     return res.json({
       user_id: challenge.user_id,
