@@ -519,6 +519,15 @@ function requestVisitorKey(req) {
   return sha256Hex(`${ip}|${headers}`);
 }
 
+function requestVisitorKeys(req) {
+  const ip = normalizeIp(getClientIp(req)) || '';
+  const keys = [requestVisitorKey(req)];
+  if (ip) {
+    keys.push(sha256Hex(`ip:${ip}`));
+  }
+  return [...new Set(keys)];
+}
+
 function referralVisitorKey(req, referrerId) {
   return sha256Hex(`${referrerId}|${requestVisitorKey(req)}`);
 }
@@ -547,14 +556,18 @@ async function rememberAccountVisitor(req, userId) {
     return;
   }
 
-  await pool.query(
-    `
-      INSERT INTO account_visitors (visitor_key, user_id)
-      VALUES ($1, $2)
-      ON CONFLICT (visitor_key)
-      DO UPDATE SET last_seen_at = NOW()
-    `,
-    [requestVisitorKey(req), String(accountId)]
+  await Promise.all(
+    requestVisitorKeys(req).map((visitorKey) =>
+      pool.query(
+        `
+          INSERT INTO account_visitors (visitor_key, user_id)
+          VALUES ($1, $2)
+          ON CONFLICT (visitor_key)
+          DO UPDATE SET last_seen_at = NOW()
+        `,
+        [visitorKey, String(accountId)]
+      )
+    )
   );
 }
 
@@ -564,10 +577,11 @@ async function getVisitorAccount(req) {
       SELECT a.*
       FROM account_visitors av
       JOIN passkey_accounts a ON a.user_id = av.user_id
-      WHERE av.visitor_key = $1
+      WHERE av.visitor_key = ANY($1::text[])
+      ORDER BY av.last_seen_at DESC
       LIMIT 1
     `,
-    [requestVisitorKey(req)]
+    [requestVisitorKeys(req)]
   );
   return result.rows[0] || null;
 }
@@ -1183,6 +1197,8 @@ app.get('/api/account/:userId', async (req, res) => {
   }
 
   try {
+    await rememberAccountVisitor(req, accountId);
+
     const profile = await controlPlaneRequest({
       method: 'POST',
       path: '/v1/users',
