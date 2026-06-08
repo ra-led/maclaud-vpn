@@ -616,6 +616,12 @@ async function prepareReferralVisitor({ req, res, referrerUserId, existingUserId
   const token = crypto.randomUUID();
   const visitorKey = referralVisitorKey(req, referrerId);
   const existingAccount = await resolveExistingReferralAccount(req, existingUserId);
+  if (!existingAccount) {
+    const error = new Error('Referral registration requires an existing browser account');
+    error.status = 403;
+    throw error;
+  }
+
   await pool.query(
     `
       INSERT INTO referral_visitors (referrer_user_id, visitor_key, guard_token_hash, user_id)
@@ -626,14 +632,12 @@ async function prepareReferralVisitor({ req, res, referrerUserId, existingUserId
         user_id = COALESCE(referral_visitors.user_id, EXCLUDED.user_id),
         last_seen_at = NOW()
     `,
-    [String(referrerId), visitorKey, sha256Hex(token), existingAccount?.user_id ? String(existingAccount.user_id) : null]
+    [String(referrerId), visitorKey, sha256Hex(token), String(existingAccount.user_id)]
   );
   setReferralGuardCookie(res, token);
-  if (existingAccount) {
-    await rememberAccountVisitor(req, existingAccount.user_id);
-    setAccountCookie(res, existingAccount.user_id);
-  }
-  return { ok: true, known_account: Boolean(existingAccount) };
+  await rememberAccountVisitor(req, existingAccount.user_id);
+  setAccountCookie(res, existingAccount.user_id);
+  return { ok: true, known_account: true };
 }
 
 async function getReferralVisitor({ req, referrerUserId }) {
