@@ -524,7 +524,15 @@ async function getDeviceCookieAccount(req) {
   return getPasskeyAccount(accountId);
 }
 
-async function prepareReferralVisitor({ req, res, referrerUserId }) {
+async function resolveExistingReferralAccount(req, claimedUserId = null) {
+  const cookieAccount = await getDeviceCookieAccount(req);
+  if (cookieAccount) {
+    return cookieAccount;
+  }
+  return getPasskeyAccount(claimedUserId);
+}
+
+async function prepareReferralVisitor({ req, res, referrerUserId, existingUserId = null }) {
   const referrerId = parseControlPlaneAccountId(referrerUserId);
   if (!referrerId) {
     const error = new Error('Invalid referral link');
@@ -541,19 +549,24 @@ async function prepareReferralVisitor({ req, res, referrerUserId }) {
 
   const token = crypto.randomUUID();
   const visitorKey = referralVisitorKey(req, referrerId);
+  const existingAccount = await resolveExistingReferralAccount(req, existingUserId);
   await pool.query(
     `
-      INSERT INTO referral_visitors (referrer_user_id, visitor_key, guard_token_hash)
-      VALUES ($1, $2, $3)
+      INSERT INTO referral_visitors (referrer_user_id, visitor_key, guard_token_hash, user_id)
+      VALUES ($1, $2, $3, $4)
       ON CONFLICT (referrer_user_id, visitor_key)
       DO UPDATE SET
         guard_token_hash = EXCLUDED.guard_token_hash,
+        user_id = COALESCE(referral_visitors.user_id, EXCLUDED.user_id),
         last_seen_at = NOW()
     `,
-    [String(referrerId), visitorKey, sha256Hex(token)]
+    [String(referrerId), visitorKey, sha256Hex(token), existingAccount?.user_id ? String(existingAccount.user_id) : null]
   );
   setReferralGuardCookie(res, token);
-  return { ok: true };
+  if (existingAccount) {
+    setAccountCookie(res, existingAccount.user_id);
+  }
+  return { ok: true, known_account: Boolean(existingAccount) };
 }
 
 async function getReferralVisitor({ req, referrerUserId }) {
@@ -605,6 +618,20 @@ async function requireReferralGuard({ req, referrerUserId }) {
     throw error;
   }
   return visitor;
+}
+
+async function attachExistingAccountToReferralVisitor({ req, referrerUserId, existingUserId = null }) {
+  const existingAccount = await resolveExistingReferralAccount(req, existingUserId);
+  if (!existingAccount) {
+    return null;
+  }
+
+  await setReferralVisitorUser({
+    req,
+    referrerUserId,
+    userId: existingAccount.user_id
+  });
+  return existingAccount;
 }
 
 async function setReferralVisitorUser({ req, referrerUserId, userId }) {
@@ -768,12 +795,13 @@ function sendApiError(res, error, fallback = 'Unexpected API error') {
 
 app.post('/api/referral/prepare', async (req, res) => {
   try {
-    await prepareReferralVisitor({
+    const referral = await prepareReferralVisitor({
       req,
       res,
-      referrerUserId: req.body?.referrer_user_id
+      referrerUserId: req.body?.referrer_user_id,
+      existingUserId: req.body?.current_user_id
     });
-    return res.json({ ok: true });
+    return res.json(referral);
   } catch (error) {
     console.error('referral prepare failed', { message: error instanceof Error ? error.message : String(error) });
     return sendApiError(res, error, 'Не удалось подготовить регистрацию по приглашению');
@@ -786,9 +814,16 @@ app.post('/api/referral/status', async (req, res) => {
       req,
       referrerUserId: req.body?.referrer_user_id
     });
+    const existingAccount = visitor.user_id
+      ? null
+      : await attachExistingAccountToReferralVisitor({
+          req,
+          referrerUserId: req.body?.referrer_user_id,
+          existingUserId: req.body?.current_user_id
+        });
     return res.json({
       ok: true,
-      known_account: Boolean(visitor.user_id)
+      known_account: Boolean(visitor.user_id || existingAccount)
     });
   } catch (error) {
     return sendApiError(res, error, 'Для регистрации по приглашению нужно включить cookies.');
@@ -907,6 +942,16 @@ app.post('/api/passkeys/registration/options', async (req, res) => {
         req,
         referrerUserId: requestedReferrerId
       });
+      if (!referralVisitor.user_id) {
+        const existingAccount = await attachExistingAccountToReferralVisitor({
+          req,
+          referrerUserId: requestedReferrerId,
+          existingUserId: req.body?.current_user_id
+        });
+        if (existingAccount) {
+          referralVisitor.user_id = existingAccount.user_id;
+        }
+      }
     }
 
     const deviceCookieAccount = await getDeviceCookieAccount(req);

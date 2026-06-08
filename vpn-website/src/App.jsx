@@ -310,7 +310,10 @@ export default function VPNLandingPage() {
               await fetch('/api/referral/prepare', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ referrer_user_id: referral })
+                body: JSON.stringify({
+                  referrer_user_id: referral,
+                  current_user_id: getStoredCustomerId() || undefined
+                })
               }).then(readJson);
               if (cancelled) {
                 return;
@@ -328,7 +331,10 @@ export default function VPNLandingPage() {
             await fetch('/api/referral/status', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ referrer_user_id: referral })
+              body: JSON.stringify({
+                referrer_user_id: referral,
+                current_user_id: getStoredCustomerId() || undefined
+              })
             }).then(readJson);
           } catch (_error) {
             showCookieAccessModal();
@@ -466,13 +472,16 @@ export default function VPNLandingPage() {
     } catch (_loginError) {
       try {
         setAuthStatus('Создаем вход через устройство');
+        const existingCustomerId = getStoredCustomerId();
+        const passkeyUserId = existingCustomerId || createCustomerId();
         const registrationOptions = await fetch('/api/passkeys/registration/options', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            user_id: createCustomerId(),
+            user_id: passkeyUserId,
             display_name: 'Пользователь VPN-GO',
-            referrer_user_id: referrerId || undefined
+            referrer_user_id: referrerId || undefined,
+            current_user_id: existingCustomerId || undefined
           })
         }).then(readJson);
         const registrationResponse = await startRegistration({ optionsJSON: registrationOptions.options });
