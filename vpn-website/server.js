@@ -586,7 +586,7 @@ async function getVisitorAccount(req) {
   return result.rows[0] || null;
 }
 
-async function resolveExistingReferralAccount(req, claimedUserId = null) {
+async function resolveExistingReferralAccount(req, claimedUserId = null, { allowVisitorLookup = true } = {}) {
   const cookieAccount = await getDeviceCookieAccount(req);
   if (cookieAccount) {
     return cookieAccount;
@@ -594,6 +594,9 @@ async function resolveExistingReferralAccount(req, claimedUserId = null) {
   const claimedAccount = await getPasskeyAccount(claimedUserId);
   if (claimedAccount) {
     return claimedAccount;
+  }
+  if (!allowVisitorLookup) {
+    return null;
   }
   return getVisitorAccount(req);
 }
@@ -615,7 +618,9 @@ async function prepareReferralVisitor({ req, res, referrerUserId, existingUserId
 
   const token = crypto.randomUUID();
   const visitorKey = referralVisitorKey(req, referrerId);
-  const existingAccount = await resolveExistingReferralAccount(req, existingUserId);
+  const existingAccount = await resolveExistingReferralAccount(req, existingUserId, {
+    allowVisitorLookup: false
+  });
   if (!existingAccount) {
     const error = new Error('Referral registration requires an existing browser account');
     error.status = 403;
