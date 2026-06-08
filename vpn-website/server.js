@@ -53,6 +53,8 @@ app.use(
 const REFERRAL_BONUS_KOPECKS = 1000;
 const ACCOUNT_COOKIE_NAME = 'vpngo_account_id';
 const ACCOUNT_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
+const REFERRAL_GUARD_COOKIE_NAME = 'vpngo_referral_guard';
+const REFERRAL_GUARD_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 
 const YOOKASSA_WEBHOOK_CIDRS = [
   '185.71.76.0/27',
@@ -176,6 +178,10 @@ function makeAuthHeader() {
 
 function eventFingerprint(rawBody) {
   return crypto.createHash('sha256').update(rawBody || '').digest('hex');
+}
+
+function sha256Hex(value) {
+  return crypto.createHash('sha256').update(String(value || '')).digest('hex');
 }
 
 function sanitizeMetadata(metadata) {
@@ -453,15 +459,14 @@ function getAccountCookie(req) {
   return parseControlPlaneAccountId(cookies[ACCOUNT_COOKIE_NAME]);
 }
 
-function setAccountCookie(res, userId) {
-  const accountId = parseControlPlaneAccountId(userId);
-  if (!accountId) {
+function setCookie(res, name, value, maxAgeSeconds) {
+  if (!name || !value) {
     return;
   }
 
   const attrs = [
-    `${ACCOUNT_COOKIE_NAME}=${encodeURIComponent(String(accountId))}`,
-    `Max-Age=${ACCOUNT_COOKIE_MAX_AGE_SECONDS}`,
+    `${name}=${encodeURIComponent(String(value))}`,
+    `Max-Age=${maxAgeSeconds}`,
     'Path=/',
     'HttpOnly',
     'SameSite=Lax'
@@ -469,7 +474,36 @@ function setAccountCookie(res, userId) {
   if (NODE_ENV === 'production') {
     attrs.push('Secure');
   }
-  res.setHeader('Set-Cookie', attrs.join('; '));
+  const cookie = attrs.join('; ');
+  const existing = res.getHeader('Set-Cookie');
+  if (!existing) {
+    res.setHeader('Set-Cookie', cookie);
+    return;
+  }
+  res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, cookie] : [existing, cookie]);
+}
+
+function setAccountCookie(res, userId) {
+  const accountId = parseControlPlaneAccountId(userId);
+  if (!accountId) {
+    return;
+  }
+  setCookie(res, ACCOUNT_COOKIE_NAME, String(accountId), ACCOUNT_COOKIE_MAX_AGE_SECONDS);
+}
+
+function getReferralGuardCookie(req) {
+  const cookies = parseCookies(req.headers.cookie || '');
+  return typeof cookies[REFERRAL_GUARD_COOKIE_NAME] === 'string' ? cookies[REFERRAL_GUARD_COOKIE_NAME] : '';
+}
+
+function setReferralGuardCookie(res, token) {
+  setCookie(res, REFERRAL_GUARD_COOKIE_NAME, token, REFERRAL_GUARD_COOKIE_MAX_AGE_SECONDS);
+}
+
+function referralVisitorKey(req, referrerId) {
+  const ip = normalizeIp(getClientIp(req)) || '';
+  const userAgent = String(req.headers['user-agent'] || '').trim().toLowerCase().slice(0, 500);
+  return sha256Hex(`${referrerId}|${ip}|${userAgent}`);
 }
 
 async function getPasskeyAccount(userId) {
@@ -490,15 +524,120 @@ async function getDeviceCookieAccount(req) {
   return getPasskeyAccount(accountId);
 }
 
-async function applyReferralActivation({ referrerUserId, invitedUserId, existingDeviceUserId = null }) {
+async function prepareReferralVisitor({ req, res, referrerUserId }) {
+  const referrerId = parseControlPlaneAccountId(referrerUserId);
+  if (!referrerId) {
+    const error = new Error('Invalid referral link');
+    error.status = 400;
+    throw error;
+  }
+
+  const referrer = await getPasskeyAccount(referrerId);
+  if (!referrer) {
+    const error = new Error('Referral account was not found');
+    error.status = 404;
+    throw error;
+  }
+
+  const token = crypto.randomUUID();
+  const visitorKey = referralVisitorKey(req, referrerId);
+  await pool.query(
+    `
+      INSERT INTO referral_visitors (referrer_user_id, visitor_key, guard_token_hash)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (referrer_user_id, visitor_key)
+      DO UPDATE SET
+        guard_token_hash = EXCLUDED.guard_token_hash,
+        last_seen_at = NOW()
+    `,
+    [String(referrerId), visitorKey, sha256Hex(token)]
+  );
+  setReferralGuardCookie(res, token);
+  return { ok: true };
+}
+
+async function getReferralVisitor({ req, referrerUserId }) {
+  const referrerId = parseControlPlaneAccountId(referrerUserId);
+  if (!referrerId) {
+    return null;
+  }
+
+  const visitorKey = referralVisitorKey(req, referrerId);
+  const result = await pool.query(
+    `
+      SELECT rv.*, a.display_name
+      FROM referral_visitors rv
+      LEFT JOIN passkey_accounts a ON a.user_id = rv.user_id
+      WHERE rv.referrer_user_id = $1
+        AND rv.visitor_key = $2
+      LIMIT 1
+    `,
+    [String(referrerId), visitorKey]
+  );
+  return result.rows[0] || null;
+}
+
+async function requireReferralGuard({ req, referrerUserId }) {
+  const referrerId = parseControlPlaneAccountId(referrerUserId);
+  const token = getReferralGuardCookie(req);
+  if (!referrerId || !token) {
+    const error = new Error('Для регистрации по приглашению нужно включить cookies.');
+    error.status = 403;
+    throw error;
+  }
+
+  const tokenHash = sha256Hex(token);
+  const result = await pool.query(
+    `
+      UPDATE referral_visitors
+      SET last_seen_at = NOW()
+      WHERE referrer_user_id = $1
+        AND visitor_key = $2
+        AND guard_token_hash = $3
+      RETURNING *
+    `,
+    [String(referrerId), referralVisitorKey(req, referrerId), tokenHash]
+  );
+  const visitor = result.rows[0];
+  if (!visitor) {
+    const error = new Error('Для регистрации по приглашению нужно включить cookies.');
+    error.status = 403;
+    throw error;
+  }
+  return visitor;
+}
+
+async function setReferralVisitorUser({ req, referrerUserId, userId }) {
+  const referrerId = parseControlPlaneAccountId(referrerUserId);
+  const accountId = parseControlPlaneAccountId(userId);
+  if (!referrerId || !accountId) {
+    return;
+  }
+
+  await pool.query(
+    `
+      UPDATE referral_visitors
+      SET user_id = $3, last_seen_at = NOW()
+      WHERE referrer_user_id = $1
+        AND visitor_key = $2
+    `,
+    [String(referrerId), referralVisitorKey(req, referrerId), String(accountId)]
+  );
+}
+
+async function applyReferralActivation({ referrerUserId, invitedUserId, existingDeviceUserId = null, existingReferralUserId = null }) {
   const referrerId = parseControlPlaneAccountId(referrerUserId);
   const invitedId = parseControlPlaneAccountId(invitedUserId);
   const existingDeviceId = parseControlPlaneAccountId(existingDeviceUserId);
+  const existingReferralId = parseControlPlaneAccountId(existingReferralUserId);
   if (!referrerId || !invitedId || referrerId === invitedId) {
     return { applied: false, reason: 'invalid_referral' };
   }
   if (existingDeviceId) {
     return { applied: false, reason: 'same_device_cookie' };
+  }
+  if (existingReferralId) {
+    return { applied: false, reason: 'same_referral_visitor' };
   }
 
   const referrer = await pool.query(
@@ -627,6 +766,35 @@ function sendApiError(res, error, fallback = 'Unexpected API error') {
   });
 }
 
+app.post('/api/referral/prepare', async (req, res) => {
+  try {
+    await prepareReferralVisitor({
+      req,
+      res,
+      referrerUserId: req.body?.referrer_user_id
+    });
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('referral prepare failed', { message: error instanceof Error ? error.message : String(error) });
+    return sendApiError(res, error, 'Не удалось подготовить регистрацию по приглашению');
+  }
+});
+
+app.post('/api/referral/status', async (req, res) => {
+  try {
+    const visitor = await requireReferralGuard({
+      req,
+      referrerUserId: req.body?.referrer_user_id
+    });
+    return res.json({
+      ok: true,
+      known_account: Boolean(visitor.user_id)
+    });
+  } catch (error) {
+    return sendApiError(res, error, 'Для регистрации по приглашению нужно включить cookies.');
+  }
+});
+
 app.post('/api/passkeys/authentication/options', async (_req, res) => {
   try {
     const options = await generateAuthenticationOptions({
@@ -732,10 +900,20 @@ app.post('/api/passkeys/authentication/verify', async (req, res) => {
 
 app.post('/api/passkeys/registration/options', async (req, res) => {
   try {
+    const requestedReferrerId = parseControlPlaneAccountId(req.body?.referrer_user_id);
+    let referralVisitor = null;
+    if (requestedReferrerId) {
+      referralVisitor = await requireReferralGuard({
+        req,
+        referrerUserId: requestedReferrerId
+      });
+    }
+
     const deviceCookieAccount = await getDeviceCookieAccount(req);
-    const userId = Number(deviceCookieAccount?.user_id || parseControlPlaneAccountId(req.body?.user_id) || createControlPlaneAccountId());
+    const referralVisitorAccount = referralVisitor?.user_id ? await getPasskeyAccount(referralVisitor.user_id) : null;
+    const userId = Number(deviceCookieAccount?.user_id || referralVisitorAccount?.user_id || parseControlPlaneAccountId(req.body?.user_id) || createControlPlaneAccountId());
     const displayName = normalizeDisplayName(req.body?.display_name);
-    const shouldUpdateDisplayName = !deviceCookieAccount;
+    const shouldUpdateDisplayName = !deviceCookieAccount && !referralVisitorAccount;
 
     await pool.query(
       `
@@ -776,10 +954,15 @@ app.post('/api/passkeys/registration/options', async (req, res) => {
 
     const challengeId = await savePasskeyChallenge({
       type: 'registration',
-      challenge: options.challenge,
-      userId
+        challenge: options.challenge,
+        userId
+      });
+    return res.json({
+      challenge_id: challengeId,
+      user_id: String(userId),
+      options,
+      referral_known_account: Boolean(referralVisitorAccount)
     });
-    return res.json({ challenge_id: challengeId, user_id: String(userId), options });
   } catch (error) {
     console.error('passkey registration options failed', { message: error instanceof Error ? error.message : String(error) });
     return sendApiError(res, error, 'Failed to start passkey registration');
@@ -853,18 +1036,33 @@ app.post('/api/passkeys/registration/verify', async (req, res) => {
       }
     });
 
+    const requestedReferrerId = parseControlPlaneAccountId(req.body?.referrer_user_id);
+    let referralVisitor = null;
+    if (requestedReferrerId) {
+      referralVisitor = await requireReferralGuard({
+        req,
+        referrerUserId: requestedReferrerId
+      });
+    }
+
     let referral = null;
     try {
       referral = await applyReferralActivation({
-        referrerUserId: req.body?.referrer_user_id,
+        referrerUserId: requestedReferrerId,
         invitedUserId: challenge.user_id,
-        existingDeviceUserId: getAccountCookie(req)
+        existingDeviceUserId: getAccountCookie(req),
+        existingReferralUserId: referralVisitor?.user_id
       });
     } catch (referralError) {
       console.error('passkey referral activation failed', { message: referralError instanceof Error ? referralError.message : String(referralError) });
       referral = { applied: false, reason: 'activation_failed' };
     }
 
+    await setReferralVisitorUser({
+      req,
+      referrerUserId: requestedReferrerId,
+      userId: challenge.user_id
+    });
     setAccountCookie(res, challenge.user_id);
     return res.json({
       user_id: challenge.user_id,

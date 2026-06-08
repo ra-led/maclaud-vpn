@@ -102,3 +102,23 @@ CREATE TABLE IF NOT EXISTS referral_activations (
 
 CREATE INDEX IF NOT EXISTS ix_referral_activations_referrer_user_id
   ON referral_activations (referrer_user_id);
+
+CREATE TABLE IF NOT EXISTS referral_visitors (
+  id BIGSERIAL PRIMARY KEY,
+  referrer_user_id TEXT NOT NULL,
+  user_id TEXT NULL REFERENCES passkey_accounts(user_id) ON DELETE SET NULL,
+  visitor_key TEXT NOT NULL,
+  guard_token_hash TEXT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_referral_visitors_referrer_key
+  ON referral_visitors (referrer_user_id, visitor_key);
+
+CREATE INDEX IF NOT EXISTS ix_referral_visitors_user_id
+  ON referral_visitors (user_id);
+
+CREATE INDEX IF NOT EXISTS ix_referral_visitors_guard_token_hash
+  ON referral_visitors (guard_token_hash)
+  WHERE guard_token_hash IS NOT NULL;

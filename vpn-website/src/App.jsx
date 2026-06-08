@@ -213,6 +213,7 @@ export default function VPNLandingPage() {
   const [referrerId, setReferrerId] = useState(() => getStoredReferrerId());
   const [isReferralCopied, setIsReferralCopied] = useState(false);
   const [loginConsentVisible, setLoginConsentVisible] = useState(false);
+  const [cookieAccessModalVisible, setCookieAccessModalVisible] = useState(false);
   const [authError, setAuthError] = useState('');
   const [authStatus, setAuthStatus] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
@@ -294,16 +295,58 @@ export default function VPNLandingPage() {
   }, [profile, customerId]);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const referral = params.get('ref');
-    if (referral && /^\d+$/.test(referral)) {
-      window.localStorage.setItem(STORAGE_REFERRAL_KEY, referral);
-      setReferrerId(referral);
+    let cancelled = false;
+
+    async function handleReferralEntry() {
+      const params = new URLSearchParams(window.location.search);
+      const referral = params.get('ref');
+      if (referral && /^\d+$/.test(referral)) {
+        window.localStorage.setItem(STORAGE_REFERRAL_KEY, referral);
+        setReferrerId(referral);
+
+        if (!profile) {
+          if (params.get('referral_ready') !== '1') {
+            try {
+              await fetch('/api/referral/prepare', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ referrer_user_id: referral })
+              }).then(readJson);
+              if (cancelled) {
+                return;
+              }
+              params.set('referral_ready', '1');
+              params.set('login', '1');
+              window.location.replace(`${window.location.pathname}?${params.toString()}`);
+            } catch (_error) {
+              showCookieAccessModal();
+            }
+            return;
+          }
+
+          try {
+            await fetch('/api/referral/status', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ referrer_user_id: referral })
+            }).then(readJson);
+          } catch (_error) {
+            showCookieAccessModal();
+            return;
+          }
+        }
+      }
+
+      if (!profile && params.get('login') === '1') {
+        openLoginConsent();
+      }
     }
 
-    if (!profile && params.get('login') === '1') {
-      openLoginConsent();
-    }
+    handleReferralEntry();
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -383,6 +426,14 @@ export default function VPNLandingPage() {
     setLoginConsentVisible(true);
   }
 
+  function showCookieAccessModal() {
+    window.localStorage.removeItem(STORAGE_REFERRAL_KEY);
+    setReferrerId('');
+    setLoginConsentVisible(false);
+    setCookieAccessModalVisible(true);
+    window.history.replaceState({}, '', '/');
+  }
+
   function acceptLoginConsent() {
     setLoginConsentVisible(false);
     loginWithPasskey();
@@ -420,7 +471,8 @@ export default function VPNLandingPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             user_id: createCustomerId(),
-            display_name: 'Пользователь VPN-GO'
+            display_name: 'Пользователь VPN-GO',
+            referrer_user_id: referrerId || undefined
           })
         }).then(readJson);
         const registrationResponse = await startRegistration({ optionsJSON: registrationOptions.options });
@@ -657,6 +709,28 @@ export default function VPNLandingPage() {
           className="mt-6 w-full rounded-lg bg-lime-400 px-5 py-4 text-base font-black text-slate-950 transition hover:bg-lime-300"
         >
           Закрыть эту хрень, я соглашаюсь
+        </button>
+      </div>
+    </div>
+  );
+
+  const cookieAccessModal = cookieAccessModalVisible && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-8">
+      <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-2xl">
+        <div className="text-2xl font-black leading-tight text-slate-950">
+          Для регистрации по приглашению нужно включить cookies.
+        </div>
+        <p className="mt-4 text-sm leading-6 text-slate-600">
+          Они используются для защиты от повторных регистраций и начисления бонусов.
+        </p>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          Включите cookies и обновите страницу.
+        </p>
+        <button
+          onClick={() => setCookieAccessModalVisible(false)}
+          className="mt-6 w-full rounded-lg bg-lime-400 px-5 py-4 text-base font-black text-slate-950 transition hover:bg-lime-300"
+        >
+          Понятно
         </button>
       </div>
     </div>
@@ -1196,6 +1270,7 @@ export default function VPNLandingPage() {
         </div>
       </footer>
       {loginConsentModal}
+      {cookieAccessModal}
     </div>
   );
 }
