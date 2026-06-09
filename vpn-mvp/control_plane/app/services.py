@@ -34,15 +34,21 @@ def get_or_create_user(db: Session, telegram_id: int, username: str | None, firs
     return user
 
 
-def choose_node(db: Session, exclude_node_id: int | None = None) -> Node:
+def choose_node(db: Session, exclude_node_id: int | None = None, exclude_node_ids: set[int] | None = None) -> Node:
     stmt = (
         select(Node)
         .where(Node.status == NodeStatus.healthy)
         .where(Node.active_clients < Node.max_clients)
         .order_by(Node.active_clients.asc(), Node.id.asc())
     )
+    excluded = set(exclude_node_ids or set())
     if exclude_node_id is not None:
-        preferred = db.scalar(stmt.where(Node.id != exclude_node_id))
+        excluded.add(exclude_node_id)
+    if excluded:
+        stmt = stmt.where(Node.id.notin_(excluded))
+
+    if exclude_node_id is not None:
+        preferred = db.scalar(stmt)
         if preferred:
             return preferred
 
@@ -103,46 +109,61 @@ def queue_peer_command(
 
 def create_device_for_user(db: Session, user: User, name: str) -> dict:
     ensure_user_can_add_device(user)
-    node = choose_node(db)
+    user_id = user.id
+    failed_node_ids: set[int] = set()
+    last_error: Exception | None = None
 
-    pending_secret = new_pending_secret()
+    while True:
+        try:
+            node = choose_node(db, exclude_node_ids=failed_node_ids)
+        except HTTPException:
+            if last_error:
+                raise HTTPException(status_code=502, detail='Failed to create device on available edge nodes') from last_error
+            raise
 
-    device = Device(
-        user_id=user.id,
-        node_id=node.id,
-        name=name,
-        vpn_ip=f'awg-pending-{pending_secret}',
-        public_key=f'awg-pending-{pending_secret}',
-        private_key_encrypted=encrypt_secret(pending_secret),
-        status=DeviceStatus.active,
-    )
-    db.add(device)
-    db.flush()
-
-    try:
-        edge_result = push_peer_command(
-            node,
-            method='POST',
-            path='/peers',
-            payload={'device_id': device.id, 'name': device.name},
+        pending_secret = new_pending_secret()
+        device = Device(
+            user_id=user_id,
+            node_id=node.id,
+            name=name,
+            vpn_ip=f'awg-pending-{pending_secret}',
+            public_key=f'awg-pending-{pending_secret}',
+            private_key_encrypted=encrypt_secret(pending_secret),
+            status=DeviceStatus.active,
         )
-    except Exception:
-        db.rollback()
-        raise
+        db.add(device)
+        db.flush()
 
-    conf_text = normalize_client_conf(edge_result['conf_text'])
-    device.vpn_ip = edge_result['vpn_ip']
-    device.public_key = edge_result['public_key']
-    device.private_key_encrypted = encrypt_secret(conf_text)
-    node.active_clients = (node.active_clients or 0) + 1
-    db.commit()
-    db.refresh(device)
+        try:
+            edge_result = push_peer_command(
+                node,
+                method='POST',
+                path='/peers',
+                payload={'device_id': device.id, 'name': device.name},
+            )
 
-    return {
-        'device': device,
-        'conf_text': conf_text,
-        'qr_png_base64': edge_result['qr_png_base64'],
-    }
+            conf_text = normalize_client_conf(edge_result['conf_text'])
+            device.vpn_ip = edge_result['vpn_ip']
+            device.public_key = edge_result['public_key']
+            device.private_key_encrypted = encrypt_secret(conf_text)
+            node.active_clients = (node.active_clients or 0) + 1
+            db.commit()
+            db.refresh(device)
+
+            return {
+                'device': device,
+                'conf_text': conf_text,
+                'qr_png_base64': edge_result['qr_png_base64'],
+            }
+        except Exception as error:
+            failed_node_ids.add(node.id)
+            last_error = error
+            device_id = device.id
+            db.rollback()
+            try:
+                push_peer_command(node, method='DELETE', path=f'/peers/{device_id}')
+            except Exception:
+                pass
 
 
 def regenerate_device_config(db: Session, device: Device) -> dict:
