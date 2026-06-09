@@ -7,6 +7,7 @@ const STORAGE_PROFILE_KEY = 'vpngo_profile';
 const STORAGE_CUSTOMER_KEY = 'vpngo_customer_id';
 const STORAGE_REFERRAL_KEY = 'vpngo_referrer_id';
 const STORAGE_REFERRAL_TOKEN_KEY = 'vpngo_referral_token';
+const STORAGE_REFERRAL_GATE_KEY = 'vpngo_referral_gate';
 const DAILY_PRICE_RUB = 5;
 
 const appDownloadLinks = [
@@ -51,6 +52,43 @@ function getStoredReferrerId() {
 function getStoredReferralToken() {
   const referralToken = window.localStorage.getItem(STORAGE_REFERRAL_TOKEN_KEY);
   return referralToken && /^[A-Za-z0-9_-]{12,80}$/.test(referralToken) ? referralToken : '';
+}
+
+function createReferralGateMarker() {
+  return window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+}
+
+async function isLikelyPrivateBrowsing() {
+  try {
+    const dbName = `vpngo-private-probe-${Date.now()}`;
+    await new Promise((resolve, reject) => {
+      const request = window.indexedDB?.open(dbName, 1);
+      if (!request) {
+        resolve();
+        return;
+      }
+      request.onerror = () => reject(request.error || new Error('IndexedDB unavailable'));
+      request.onsuccess = () => {
+        request.result.close();
+        window.indexedDB.deleteDatabase(dbName);
+        resolve();
+      };
+    });
+  } catch (_error) {
+    return true;
+  }
+
+  try {
+    const estimate = await navigator.storage?.estimate?.();
+    const quota = Number(estimate?.quota || 0);
+    if (quota > 0 && quota < 120 * 1024 * 1024) {
+      return true;
+    }
+  } catch (_error) {
+    return false;
+  }
+
+  return false;
 }
 
 function formatRubFromKopecks(value) {
@@ -316,14 +354,23 @@ export default function VPNLandingPage() {
       const referral = params.get('ref');
       const token = params.get('rt');
       if (referral && /^\d+$/.test(referral) && token && /^[A-Za-z0-9_-]{12,80}$/.test(token)) {
+        const isGatePage = params.get('referral_gate') === '1';
+        const isReadyPage = params.get('referral_ready') === '1';
+        const marker = params.get('referral_marker') || '';
         window.localStorage.setItem(STORAGE_REFERRAL_KEY, referral);
         window.localStorage.setItem(STORAGE_REFERRAL_TOKEN_KEY, token);
         setReferrerId(referral);
         setReferralToken(token);
 
         if (!profile) {
-          if (params.get('referral_ready') !== '1') {
+          if (isGatePage && !isReadyPage) {
             try {
+              if (await isLikelyPrivateBrowsing()) {
+                showCookieAccessModal();
+                return;
+              }
+              const gateMarker = createReferralGateMarker();
+              window.localStorage.setItem(STORAGE_REFERRAL_GATE_KEY, gateMarker);
               await fetch('/api/referral/prepare', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -336,9 +383,18 @@ export default function VPNLandingPage() {
               if (cancelled) {
                 return;
               }
-              params.set('referral_ready', '1');
-              params.set('login', '1');
-              window.location.replace(`${window.location.pathname}?${params.toString()}`);
+              const nextParams = new URLSearchParams(params);
+              nextParams.delete('referral_gate');
+              nextParams.set('referral_ready', '1');
+              nextParams.set('referral_marker', gateMarker);
+              nextParams.set('login', '1');
+              const nextUrl = `${window.location.origin}${window.location.pathname}?${nextParams.toString()}`;
+              const opened = window.open(nextUrl, '_blank', 'noopener,noreferrer');
+              if (opened) {
+                window.location.replace('/');
+              } else {
+                window.location.replace(nextUrl);
+              }
             } catch (error) {
               if (error?.status === 409) {
                 showReferralLinkUsedModal();
@@ -346,6 +402,18 @@ export default function VPNLandingPage() {
               }
               showCookieAccessModal();
             }
+            return;
+          }
+
+          if (!isReadyPage) {
+            const gateParams = new URLSearchParams(params);
+            gateParams.set('referral_gate', '1');
+            window.location.replace(`${window.location.pathname}?${gateParams.toString()}`);
+            return;
+          }
+
+          if (!marker || window.localStorage.getItem(STORAGE_REFERRAL_GATE_KEY) !== marker || await isLikelyPrivateBrowsing()) {
+            showCookieAccessModal();
             return;
           }
 
@@ -465,6 +533,7 @@ export default function VPNLandingPage() {
     if (referrerId && (referrerId === nextCustomerId || session?.referral)) {
       window.localStorage.removeItem(STORAGE_REFERRAL_KEY);
       window.localStorage.removeItem(STORAGE_REFERRAL_TOKEN_KEY);
+      window.localStorage.removeItem(STORAGE_REFERRAL_GATE_KEY);
       setReferrerId('');
       setReferralToken('');
     }
@@ -479,6 +548,7 @@ export default function VPNLandingPage() {
   function showCookieAccessModal() {
     window.localStorage.removeItem(STORAGE_REFERRAL_KEY);
     window.localStorage.removeItem(STORAGE_REFERRAL_TOKEN_KEY);
+    window.localStorage.removeItem(STORAGE_REFERRAL_GATE_KEY);
     setReferrerId('');
     setReferralToken('');
     setLoginConsentVisible(false);
@@ -489,6 +559,7 @@ export default function VPNLandingPage() {
   function showReferralLinkUsedModal() {
     window.localStorage.removeItem(STORAGE_REFERRAL_KEY);
     window.localStorage.removeItem(STORAGE_REFERRAL_TOKEN_KEY);
+    window.localStorage.removeItem(STORAGE_REFERRAL_GATE_KEY);
     setReferrerId('');
     setReferralToken('');
     setLoginConsentVisible(false);
@@ -566,6 +637,7 @@ export default function VPNLandingPage() {
     window.localStorage.removeItem(STORAGE_PROFILE_KEY);
     window.localStorage.removeItem(STORAGE_CUSTOMER_KEY);
     window.localStorage.removeItem(STORAGE_REFERRAL_TOKEN_KEY);
+    window.localStorage.removeItem(STORAGE_REFERRAL_GATE_KEY);
     clearPendingConfigReveal();
     setProfile(null);
     setCustomerId('');
@@ -759,7 +831,7 @@ export default function VPNLandingPage() {
   const activeReferral = dashboard?.referral;
   const referralBonusRub = Math.floor((activeReferral?.bonus_kopecks || 5000) / 100);
   const referralLink = customerId && activeReferral?.available && activeReferral?.token
-    ? `${window.location.origin}/?ref=${encodeURIComponent(customerId)}&rt=${encodeURIComponent(activeReferral.token)}&login=1`
+    ? `${window.location.origin}/?ref=${encodeURIComponent(customerId)}&rt=${encodeURIComponent(activeReferral.token)}&referral_gate=1`
     : '';
 
   const loginConsentModal = loginConsentVisible && (
@@ -887,6 +959,28 @@ export default function VPNLandingPage() {
       </div>
     </div>
   );
+
+  const isReferralGateScreen = !profile && new URLSearchParams(window.location.search).get('referral_gate') === '1';
+
+  if (isReferralGateScreen) {
+    return (
+      <div className="min-h-screen bg-[#f7f8fb] text-slate-950">
+        <main className="mx-auto flex min-h-screen max-w-xl items-center px-6 py-12">
+          <div className="w-full rounded-lg border border-slate-200 bg-white p-6 text-center shadow-sm">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-lime-400 text-base font-black">
+              GO
+            </div>
+            <h1 className="mt-5 text-2xl font-black">Готовим приглашение</h1>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              Откроем вход в новой вкладке и проверим, что cookies доступны для начисления бонуса.
+            </p>
+          </div>
+        </main>
+        {cookieAccessModal}
+        {referralLinkUsedModal}
+      </div>
+    );
+  }
 
   if (profile) {
     const balance = dashboard?.balance;
