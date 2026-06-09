@@ -1222,14 +1222,14 @@ export default function VPNLandingPage() {
                 <div className="flex items-center justify-between border-b border-slate-200 pb-4">
                   <div>
                     <div className="text-sm font-semibold text-slate-500">Личный кабинет</div>
-                    <div className="mt-1 text-2xl font-black">Следите за балансом и расходами</div>
+                    <div className="mt-1 text-2xl font-black">Добавляйте несколько устройств</div>
                   </div>
                   <div className="rounded-lg bg-lime-400 px-3 py-2 text-sm font-black">5 ₽/сутки</div>
                 </div>
                 <div className="mt-5 rounded-lg border border-slate-200">
                   {[
-                    ['Баланс', 'Списание по активным устройствам', '5 ₽/сутки'],
-                    ['Устройства', 'Конфиги и QR-коды в одном месте', 'AmneziaWG']
+                    ['iPhone', 'QR-код и .conf для AmneziaWG', 'Активно'],
+                    ['Ноутбук', 'Отдельный конфиг для второго устройства', 'Активно']
                   ].map(([title, text, value]) => (
                     <div
                       key={title}
