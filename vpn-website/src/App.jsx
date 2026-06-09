@@ -6,6 +6,7 @@ import { userAgreementText } from './userAgreement.js';
 const STORAGE_PROFILE_KEY = 'vpngo_profile';
 const STORAGE_CUSTOMER_KEY = 'vpngo_customer_id';
 const STORAGE_REFERRAL_KEY = 'vpngo_referrer_id';
+const STORAGE_REFERRAL_TOKEN_KEY = 'vpngo_referral_token';
 const DAILY_PRICE_RUB = 5;
 
 const appDownloadLinks = [
@@ -45,6 +46,11 @@ function getStoredCustomerId() {
 function getStoredReferrerId() {
   const referrerId = window.localStorage.getItem(STORAGE_REFERRAL_KEY);
   return referrerId && /^\d+$/.test(referrerId) ? referrerId : '';
+}
+
+function getStoredReferralToken() {
+  const referralToken = window.localStorage.getItem(STORAGE_REFERRAL_TOKEN_KEY);
+  return referralToken && /^[A-Za-z0-9_-]{12,80}$/.test(referralToken) ? referralToken : '';
 }
 
 function formatRubFromKopecks(value) {
@@ -160,7 +166,9 @@ function dateLabel(value) {
 async function readJson(response) {
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(payload?.error || payload?.detail || 'Не удалось выполнить запрос');
+    const error = new Error(payload?.error || payload?.detail || 'Не удалось выполнить запрос');
+    error.status = response.status;
+    throw error;
   }
   return payload;
 }
@@ -211,9 +219,11 @@ export default function VPNLandingPage() {
   const [profile, setProfile] = useState(() => getStoredProfile());
   const [customerId, setCustomerId] = useState(() => getStoredCustomerId());
   const [referrerId, setReferrerId] = useState(() => getStoredReferrerId());
+  const [referralToken, setReferralToken] = useState(() => getStoredReferralToken());
   const [isReferralCopied, setIsReferralCopied] = useState(false);
   const [loginConsentVisible, setLoginConsentVisible] = useState(false);
   const [cookieAccessModalVisible, setCookieAccessModalVisible] = useState(false);
+  const [referralLinkUsedModalVisible, setReferralLinkUsedModalVisible] = useState(false);
   const [authError, setAuthError] = useState('');
   const [authStatus, setAuthStatus] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
@@ -304,9 +314,12 @@ export default function VPNLandingPage() {
     async function handleReferralEntry() {
       const params = new URLSearchParams(window.location.search);
       const referral = params.get('ref');
-      if (referral && /^\d+$/.test(referral)) {
+      const token = params.get('rt');
+      if (referral && /^\d+$/.test(referral) && token && /^[A-Za-z0-9_-]{12,80}$/.test(token)) {
         window.localStorage.setItem(STORAGE_REFERRAL_KEY, referral);
+        window.localStorage.setItem(STORAGE_REFERRAL_TOKEN_KEY, token);
         setReferrerId(referral);
+        setReferralToken(token);
 
         if (!profile) {
           if (params.get('referral_ready') !== '1') {
@@ -316,6 +329,7 @@ export default function VPNLandingPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   referrer_user_id: referral,
+                  referral_token: token,
                   current_user_id: getStoredCustomerId() || undefined
                 })
               }).then(readJson);
@@ -325,7 +339,11 @@ export default function VPNLandingPage() {
               params.set('referral_ready', '1');
               params.set('login', '1');
               window.location.replace(`${window.location.pathname}?${params.toString()}`);
-            } catch (_error) {
+            } catch (error) {
+              if (error?.status === 409) {
+                showReferralLinkUsedModal();
+                return;
+              }
               showCookieAccessModal();
             }
             return;
@@ -337,10 +355,15 @@ export default function VPNLandingPage() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 referrer_user_id: referral,
+                referral_token: token,
                 current_user_id: getStoredCustomerId() || undefined
               })
             }).then(readJson);
-          } catch (_error) {
+          } catch (error) {
+            if (error?.status === 409) {
+              showReferralLinkUsedModal();
+              return;
+            }
             showCookieAccessModal();
             return;
           }
@@ -441,7 +464,9 @@ export default function VPNLandingPage() {
     setAuthError('');
     if (referrerId && (referrerId === nextCustomerId || session?.referral)) {
       window.localStorage.removeItem(STORAGE_REFERRAL_KEY);
+      window.localStorage.removeItem(STORAGE_REFERRAL_TOKEN_KEY);
       setReferrerId('');
+      setReferralToken('');
     }
     await loadAccount(nextProfile, nextCustomerId);
   }
@@ -453,9 +478,21 @@ export default function VPNLandingPage() {
 
   function showCookieAccessModal() {
     window.localStorage.removeItem(STORAGE_REFERRAL_KEY);
+    window.localStorage.removeItem(STORAGE_REFERRAL_TOKEN_KEY);
     setReferrerId('');
+    setReferralToken('');
     setLoginConsentVisible(false);
     setCookieAccessModalVisible(true);
+    window.history.replaceState({}, '', '/');
+  }
+
+  function showReferralLinkUsedModal() {
+    window.localStorage.removeItem(STORAGE_REFERRAL_KEY);
+    window.localStorage.removeItem(STORAGE_REFERRAL_TOKEN_KEY);
+    setReferrerId('');
+    setReferralToken('');
+    setLoginConsentVisible(false);
+    setReferralLinkUsedModalVisible(true);
     window.history.replaceState({}, '', '/');
   }
 
@@ -500,6 +537,7 @@ export default function VPNLandingPage() {
             user_id: passkeyUserId,
             display_name: 'Пользователь VPN-GO',
             referrer_user_id: referrerId || undefined,
+            referral_token: referralToken || undefined,
             current_user_id: existingCustomerId || undefined
           })
         }).then(readJson);
@@ -510,7 +548,8 @@ export default function VPNLandingPage() {
         body: JSON.stringify({
           challenge_id: registrationOptions.challenge_id,
           response: registrationResponse,
-          referrer_user_id: referrerId
+          referrer_user_id: referrerId,
+          referral_token: referralToken || undefined
         })
       }).then(readJson);
         await finishPasskeySession(registeredSession);
@@ -526,6 +565,7 @@ export default function VPNLandingPage() {
   function logout() {
     window.localStorage.removeItem(STORAGE_PROFILE_KEY);
     window.localStorage.removeItem(STORAGE_CUSTOMER_KEY);
+    window.localStorage.removeItem(STORAGE_REFERRAL_TOKEN_KEY);
     clearPendingConfigReveal();
     setProfile(null);
     setCustomerId('');
@@ -703,13 +743,12 @@ export default function VPNLandingPage() {
   }
 
   async function copyReferralLink() {
-    if (!customerId) {
+    if (!referralLink) {
       return;
     }
 
-    const referralUrl = `${window.location.origin}/?ref=${encodeURIComponent(customerId)}&login=1`;
     try {
-      await navigator.clipboard.writeText(referralUrl);
+      await navigator.clipboard.writeText(referralLink);
       setIsReferralCopied(true);
       window.setTimeout(() => setIsReferralCopied(false), 1800);
     } catch (_error) {
@@ -717,8 +756,10 @@ export default function VPNLandingPage() {
     }
   }
 
-  const referralLink = customerId
-    ? `${window.location.origin}/?ref=${encodeURIComponent(customerId)}&login=1`
+  const activeReferral = dashboard?.referral;
+  const referralBonusRub = Math.floor((activeReferral?.bonus_kopecks || 5000) / 100);
+  const referralLink = customerId && activeReferral?.available && activeReferral?.token
+    ? `${window.location.origin}/?ref=${encodeURIComponent(customerId)}&rt=${encodeURIComponent(activeReferral.token)}&login=1`
     : '';
 
   const loginConsentModal = loginConsentVisible && (
@@ -766,6 +807,25 @@ export default function VPNLandingPage() {
         </p>
         <button
           onClick={() => setCookieAccessModalVisible(false)}
+          className="mt-6 w-full rounded-lg bg-lime-400 px-5 py-4 text-base font-black text-slate-950 transition hover:bg-lime-300"
+        >
+          Понятно
+        </button>
+      </div>
+    </div>
+  );
+
+  const referralLinkUsedModal = referralLinkUsedModalVisible && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-8">
+      <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-2xl">
+        <div className="text-2xl font-black leading-tight text-slate-950">
+          По этой ссылке уже была регистрация.
+        </div>
+        <p className="mt-4 text-sm leading-6 text-slate-600">
+          Попросите новую ссылку-приглашение.
+        </p>
+        <button
+          onClick={() => setReferralLinkUsedModalVisible(false)}
           className="mt-6 w-full rounded-lg bg-lime-400 px-5 py-4 text-base font-black text-slate-950 transition hover:bg-lime-300"
         >
           Понятно
@@ -962,11 +1022,12 @@ export default function VPNLandingPage() {
                 </button>
               </div>
 
+              {referralLink && (
               <div className="mt-6 border-t border-slate-200 pt-5">
                 <h2 className="text-lg font-black">Пригласить</h2>
                 <p className="mt-2 text-sm leading-6 text-slate-600">
                   Отправьте эту ссылку другу и при активации нового аккаунта вы оба{' '}
-                  <span className="dark-rainbow-text font-black">получите 10 ₽ на баланс</span>.
+                  <span className="dark-rainbow-text font-black">получите {referralBonusRub} ₽ на баланс</span>.
                 </p>
                 <div className="mt-4 flex overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
                   <div className="min-w-0 flex-1 truncate px-4 py-3 font-mono text-xs text-slate-700">
@@ -980,6 +1041,7 @@ export default function VPNLandingPage() {
                   </button>
                 </div>
               </div>
+              )}
             </div>
           </section>
 
@@ -1171,6 +1233,7 @@ export default function VPNLandingPage() {
         </main>
         {deleteDeviceModal}
         {regenerateDeviceModal}
+        {referralLinkUsedModal}
       </div>
     );
   }
@@ -1309,6 +1372,7 @@ export default function VPNLandingPage() {
       </footer>
       {loginConsentModal}
       {cookieAccessModal}
+      {referralLinkUsedModal}
     </div>
   );
 }

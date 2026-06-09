@@ -93,25 +93,55 @@ CREATE TABLE IF NOT EXISTS referral_activations (
   id BIGSERIAL PRIMARY KEY,
   referrer_user_id TEXT NOT NULL,
   invited_user_id TEXT NOT NULL UNIQUE,
-  bonus_kopecks INTEGER NOT NULL DEFAULT 1000,
+  referral_token TEXT NULL,
+  bonus_kopecks INTEGER NOT NULL DEFAULT 5000,
   status TEXT NOT NULL DEFAULT 'pending',
   error_text TEXT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   awarded_at TIMESTAMPTZ NULL
 );
 
+ALTER TABLE referral_activations
+  ADD COLUMN IF NOT EXISTS referral_token TEXT NULL;
+
+ALTER TABLE referral_activations
+  ALTER COLUMN bonus_kopecks SET DEFAULT 5000;
+
 CREATE INDEX IF NOT EXISTS ix_referral_activations_referrer_user_id
   ON referral_activations (referrer_user_id);
+
+CREATE INDEX IF NOT EXISTS ix_referral_activations_referrer_awarded_at
+  ON referral_activations (referrer_user_id, awarded_at)
+  WHERE status = 'awarded';
+
+CREATE TABLE IF NOT EXISTS referral_links (
+  token TEXT PRIMARY KEY,
+  referrer_user_id TEXT NOT NULL REFERENCES passkey_accounts(user_id) ON DELETE CASCADE,
+  used_by_user_id TEXT NULL REFERENCES passkey_accounts(user_id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  used_at TIMESTAMPTZ NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_referral_links_referrer_user_id
+  ON referral_links (referrer_user_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_referral_links_active_referrer
+  ON referral_links (referrer_user_id)
+  WHERE used_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS referral_visitors (
   id BIGSERIAL PRIMARY KEY,
   referrer_user_id TEXT NOT NULL,
+  referral_token TEXT NULL,
   user_id TEXT NULL REFERENCES passkey_accounts(user_id) ON DELETE SET NULL,
   visitor_key TEXT NOT NULL,
   guard_token_hash TEXT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE referral_visitors
+  ADD COLUMN IF NOT EXISTS referral_token TEXT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_referral_visitors_referrer_key
   ON referral_visitors (referrer_user_id, visitor_key);

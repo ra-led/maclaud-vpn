@@ -50,7 +50,8 @@ app.use(
   })
 );
 
-const REFERRAL_BONUS_KOPECKS = 1000;
+const REFERRAL_BONUS_KOPECKS = 5000;
+const REFERRAL_MONTHLY_LIMIT = 3;
 const ACCOUNT_COOKIE_NAME = 'vpngo_account_id';
 const ACCOUNT_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 const REFERRAL_GUARD_COOKIE_NAME = 'vpngo_referral_guard';
@@ -529,6 +530,94 @@ async function backfillReferralBonusPaymentsForUser(userId) {
   )));
 }
 
+async function getReferralMonthlyCount(userId) {
+  const result = await pool.query(
+    `
+      SELECT COUNT(*)::int AS count
+      FROM referral_activations
+      WHERE referrer_user_id = $1
+        AND status = 'awarded'
+        AND awarded_at >= date_trunc('month', NOW())
+        AND awarded_at < date_trunc('month', NOW()) + INTERVAL '1 month'
+    `,
+    [String(userId)]
+  );
+  return Number(result.rows[0]?.count || 0);
+}
+
+function createReferralToken() {
+  return crypto.randomBytes(18).toString('base64url');
+}
+
+async function getOrCreateActiveReferralLink(userId) {
+  const accountId = parseControlPlaneAccountId(userId);
+  if (!accountId) {
+    return null;
+  }
+
+  const usedThisMonth = await getReferralMonthlyCount(accountId);
+  const remainingThisMonth = Math.max(0, REFERRAL_MONTHLY_LIMIT - usedThisMonth);
+  if (remainingThisMonth <= 0) {
+    return {
+      available: false,
+      token: null,
+      used_this_month: usedThisMonth,
+      remaining_this_month: 0,
+      monthly_limit: REFERRAL_MONTHLY_LIMIT,
+      bonus_kopecks: REFERRAL_BONUS_KOPECKS
+    };
+  }
+
+  const existing = await pool.query(
+    `
+      SELECT token
+      FROM referral_links
+      WHERE referrer_user_id = $1
+        AND used_at IS NULL
+      ORDER BY created_at DESC
+      LIMIT 1
+    `,
+    [String(accountId)]
+  );
+  let token = existing.rows[0]?.token;
+
+  if (!token) {
+    const inserted = await pool.query(
+      `
+        INSERT INTO referral_links (token, referrer_user_id)
+        VALUES ($1, $2)
+        ON CONFLICT (referrer_user_id)
+        WHERE used_at IS NULL
+        DO UPDATE SET referrer_user_id = EXCLUDED.referrer_user_id
+        RETURNING token
+      `,
+      [createReferralToken(), String(accountId)]
+    );
+    token = inserted.rows[0]?.token;
+  }
+
+  return {
+    available: Boolean(token),
+    token,
+    used_this_month: usedThisMonth,
+    remaining_this_month: remainingThisMonth,
+    monthly_limit: REFERRAL_MONTHLY_LIMIT,
+    bonus_kopecks: REFERRAL_BONUS_KOPECKS
+  };
+}
+
+async function getReferralLinkByToken(referralToken) {
+  if (typeof referralToken !== 'string' || !/^[A-Za-z0-9_-]{12,80}$/.test(referralToken)) {
+    return null;
+  }
+
+  const result = await pool.query(
+    'SELECT * FROM referral_links WHERE token = $1 LIMIT 1',
+    [referralToken]
+  );
+  return result.rows[0] || null;
+}
+
 function createControlPlaneAccountId() {
   return String(Date.now() + crypto.randomInt(100_000, 999_999));
 }
@@ -709,7 +798,7 @@ async function resolveExistingReferralAccount(req, claimedUserId = null, { allow
   return getVisitorAccount(req);
 }
 
-async function prepareReferralVisitor({ req, res, referrerUserId, existingUserId = null }) {
+async function validateReferralLinkForRegistration({ referrerUserId, referralToken, allowUsed = false }) {
   const referrerId = parseControlPlaneAccountId(referrerUserId);
   if (!referrerId) {
     const error = new Error('Invalid referral link');
@@ -717,12 +806,35 @@ async function prepareReferralVisitor({ req, res, referrerUserId, existingUserId
     throw error;
   }
 
-  const referrer = await getPasskeyAccount(referrerId);
-  if (!referrer) {
+  const link = await getReferralLinkByToken(referralToken);
+  if (!link || String(link.referrer_user_id) !== String(referrerId)) {
     const error = new Error('Referral account was not found');
     error.status = 404;
     throw error;
   }
+  if (link.used_at && !allowUsed) {
+    const error = new Error('По этой ссылке уже была регистрация.');
+    error.status = 409;
+    error.code = 'referral_link_used';
+    throw error;
+  }
+
+  const usedThisMonth = await getReferralMonthlyCount(referrerId);
+  if (usedThisMonth >= REFERRAL_MONTHLY_LIMIT) {
+    const error = new Error('Лимит приглашений на этот месяц уже исчерпан.');
+    error.status = 403;
+    error.code = 'referral_limit_reached';
+    throw error;
+  }
+
+  return { referrerId, link };
+}
+
+async function prepareReferralVisitor({ req, res, referrerUserId, referralToken, existingUserId = null }) {
+  const { referrerId } = await validateReferralLinkForRegistration({
+    referrerUserId,
+    referralToken
+  });
 
   const token = crypto.randomUUID();
   const visitorKey = referralVisitorKey(req, referrerId);
@@ -737,15 +849,16 @@ async function prepareReferralVisitor({ req, res, referrerUserId, existingUserId
 
   await pool.query(
     `
-      INSERT INTO referral_visitors (referrer_user_id, visitor_key, guard_token_hash, user_id)
-      VALUES ($1, $2, $3, $4)
+      INSERT INTO referral_visitors (referrer_user_id, referral_token, visitor_key, guard_token_hash, user_id)
+      VALUES ($1, $2, $3, $4, $5)
       ON CONFLICT (referrer_user_id, visitor_key)
       DO UPDATE SET
+        referral_token = EXCLUDED.referral_token,
         guard_token_hash = EXCLUDED.guard_token_hash,
         user_id = COALESCE(referral_visitors.user_id, EXCLUDED.user_id),
         last_seen_at = NOW()
     `,
-    [String(referrerId), visitorKey, sha256Hex(token), String(existingAccount.user_id)]
+    [String(referrerId), referralToken, visitorKey, sha256Hex(token), String(existingAccount.user_id)]
   );
   setReferralGuardCookie(res, token);
   await rememberAccountVisitor(req, existingAccount.user_id);
@@ -774,7 +887,7 @@ async function getReferralVisitor({ req, referrerUserId }) {
   return result.rows[0] || null;
 }
 
-async function requireReferralGuard({ req, referrerUserId }) {
+async function requireReferralGuard({ req, referrerUserId, referralToken }) {
   const referrerId = parseControlPlaneAccountId(referrerUserId);
   const token = getReferralGuardCookie(req);
   if (!referrerId || !token) {
@@ -782,6 +895,11 @@ async function requireReferralGuard({ req, referrerUserId }) {
     error.status = 403;
     throw error;
   }
+
+  await validateReferralLinkForRegistration({
+    referrerUserId: referrerId,
+    referralToken
+  });
 
   const tokenHash = sha256Hex(token);
   const result = await pool.query(
@@ -791,9 +909,10 @@ async function requireReferralGuard({ req, referrerUserId }) {
       WHERE referrer_user_id = $1
         AND visitor_key = $2
         AND guard_token_hash = $3
+        AND referral_token = $4
       RETURNING *
     `,
-    [String(referrerId), referralVisitorKey(req, referrerId), tokenHash]
+    [String(referrerId), referralVisitorKey(req, referrerId), tokenHash, referralToken]
   );
   const visitor = result.rows[0];
   if (!visitor) {
@@ -836,7 +955,7 @@ async function setReferralVisitorUser({ req, referrerUserId, userId }) {
   );
 }
 
-async function applyReferralActivation({ referrerUserId, invitedUserId, existingDeviceUserId = null, existingReferralUserId = null }) {
+async function applyReferralActivation({ referrerUserId, referralToken, invitedUserId, existingDeviceUserId = null, existingReferralUserId = null }) {
   const referrerId = parseControlPlaneAccountId(referrerUserId);
   const invitedId = parseControlPlaneAccountId(invitedUserId);
   const existingDeviceId = parseControlPlaneAccountId(existingDeviceUserId);
@@ -859,20 +978,63 @@ async function applyReferralActivation({ referrerUserId, invitedUserId, existing
     return { applied: false, reason: 'referrer_not_found' };
   }
 
+  try {
+    await validateReferralLinkForRegistration({
+      referrerUserId: referrerId,
+      referralToken
+    });
+  } catch (error) {
+    return {
+      applied: false,
+      reason: error?.code || 'invalid_referral_link'
+    };
+  }
+
   const inserted = await pool.query(
     `
-      INSERT INTO referral_activations (referrer_user_id, invited_user_id, bonus_kopecks)
-      VALUES ($1, $2, $3)
+      INSERT INTO referral_activations (referrer_user_id, invited_user_id, referral_token, bonus_kopecks)
+      VALUES ($1, $2, $3, $4)
       ON CONFLICT (invited_user_id)
       DO UPDATE SET status = 'pending', error_text = NULL
       WHERE referral_activations.status = 'failed'
       RETURNING id
     `,
-    [String(referrerId), String(invitedId), REFERRAL_BONUS_KOPECKS]
+    [String(referrerId), String(invitedId), referralToken, REFERRAL_BONUS_KOPECKS]
   );
   const activation = inserted.rows[0];
   if (!activation) {
     return { applied: false, reason: 'already_activated' };
+  }
+
+  const claimedLink = await pool.query(
+    `
+      UPDATE referral_links
+      SET used_at = NOW(), used_by_user_id = $3
+      WHERE token = $1
+        AND referrer_user_id = $2
+        AND used_at IS NULL
+        AND (
+          SELECT COUNT(*)::int
+          FROM referral_activations
+          WHERE referrer_user_id = $2
+            AND status = 'awarded'
+            AND awarded_at >= date_trunc('month', NOW())
+            AND awarded_at < date_trunc('month', NOW()) + INTERVAL '1 month'
+        ) < $4
+      RETURNING token
+    `,
+    [referralToken, String(referrerId), String(invitedId), REFERRAL_MONTHLY_LIMIT]
+  );
+  if (!claimedLink.rows[0]) {
+    await pool.query(
+      `
+        UPDATE referral_activations
+        SET status = 'failed', error_text = 'referral_link_unavailable'
+        WHERE id = $1
+      `,
+      [activation.id]
+    );
+    return { applied: false, reason: 'referral_link_unavailable' };
   }
 
   try {
@@ -913,6 +1075,7 @@ async function applyReferralActivation({ referrerUserId, invitedUserId, existing
       `,
       [activation.id]
     );
+    await getOrCreateActiveReferralLink(referrerId);
     return { applied: true, bonus_kopecks: REFERRAL_BONUS_KOPECKS };
   } catch (error) {
     await pool.query(
@@ -989,6 +1152,7 @@ app.post('/api/referral/prepare', async (req, res) => {
       req,
       res,
       referrerUserId: req.body?.referrer_user_id,
+      referralToken: req.body?.referral_token,
       existingUserId: req.body?.current_user_id
     });
     return res.json(referral);
@@ -1002,7 +1166,8 @@ app.post('/api/referral/status', async (req, res) => {
   try {
     const visitor = await requireReferralGuard({
       req,
-      referrerUserId: req.body?.referrer_user_id
+      referrerUserId: req.body?.referrer_user_id,
+      referralToken: req.body?.referral_token
     });
     const existingAccount = visitor.user_id
       ? null
@@ -1132,7 +1297,8 @@ app.post('/api/passkeys/registration/options', async (req, res) => {
     if (requestedReferrerId) {
       referralVisitor = await requireReferralGuard({
         req,
-        referrerUserId: requestedReferrerId
+        referrerUserId: requestedReferrerId,
+        referralToken: req.body?.referral_token
       });
       if (!referralVisitor.user_id) {
         const existingAccount = await attachExistingAccountToReferralVisitor({
@@ -1278,7 +1444,8 @@ app.post('/api/passkeys/registration/verify', async (req, res) => {
     if (requestedReferrerId) {
       referralVisitor = await requireReferralGuard({
         req,
-        referrerUserId: requestedReferrerId
+        referrerUserId: requestedReferrerId,
+        referralToken: req.body?.referral_token
       });
     }
 
@@ -1286,6 +1453,7 @@ app.post('/api/passkeys/registration/verify', async (req, res) => {
     try {
       referral = await applyReferralActivation({
         referrerUserId: requestedReferrerId,
+        referralToken: req.body?.referral_token,
         invitedUserId: challenge.user_id,
         existingDeviceUserId: getAccountCookie(req),
         existingReferralUserId: referralVisitor?.user_id
@@ -1332,13 +1500,14 @@ app.get('/api/account/:userId', async (req, res) => {
       }
     });
 
-    const [balance, devices, payments] = await Promise.all([
+    const [balance, devices, payments, referral] = await Promise.all([
       controlPlaneRequest({ path: `/v1/users/${accountId}/balance` }),
       controlPlaneRequest({ path: `/v1/users/${accountId}/devices` }),
-      getWebsitePaymentsForUser(accountId)
+      getWebsitePaymentsForUser(accountId),
+      getOrCreateActiveReferralLink(accountId)
     ]);
 
-    return res.json({ profile, balance, devices, payments });
+    return res.json({ profile, balance, devices, payments, referral });
   } catch (error) {
     console.error('account load failed', { message: error instanceof Error ? error.message : String(error) });
     return sendApiError(res, error, 'Failed to load account');
