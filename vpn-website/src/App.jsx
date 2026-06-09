@@ -1,4 +1,5 @@
 import QRCode from 'qrcode';
+import FingerprintJS from '@fingerprintjs/fingerprintjs';
 import { browserSupportsWebAuthn, startAuthentication, startRegistration } from '@simplewebauthn/browser';
 import { useEffect, useRef, useState } from 'react';
 import { userAgreementText } from './userAgreement.js';
@@ -9,6 +10,7 @@ const STORAGE_REFERRAL_KEY = 'vpngo_referrer_id';
 const STORAGE_REFERRAL_TOKEN_KEY = 'vpngo_referral_token';
 const STORAGE_REFERRAL_GATE_KEY = 'vpngo_referral_gate';
 const DAILY_PRICE_RUB = 5;
+let fingerprintPromise = null;
 
 const appDownloadLinks = [
   { label: 'Android', icon: 'android', href: 'https://play.google.com/store/apps/details?id=org.amnezia.awg' },
@@ -52,6 +54,19 @@ function getStoredReferrerId() {
 function getStoredReferralToken() {
   const referralToken = window.localStorage.getItem(STORAGE_REFERRAL_TOKEN_KEY);
   return referralToken && /^[A-Za-z0-9_-]{12,80}$/.test(referralToken) ? referralToken : '';
+}
+
+async function getVisitorId() {
+  try {
+    if (!fingerprintPromise) {
+      fingerprintPromise = FingerprintJS.load()
+        .then((agent) => agent.get())
+        .then((result) => result.visitorId);
+    }
+    return await fingerprintPromise;
+  } catch (_error) {
+    return '';
+  }
 }
 
 function createReferralGateMarker() {
@@ -326,9 +341,11 @@ export default function VPNLandingPage() {
     setIsLoadingAccount(true);
     setAccountError('');
     try {
+      const visitorId = await getVisitorId();
       const params = new URLSearchParams({
         name: currentProfile.name || '',
-        email: currentProfile.email || ''
+        email: currentProfile.email || '',
+        ...(visitorId ? { visitor_id: visitorId } : {})
       });
       const payload = await fetch(`/api/account/${currentCustomerId}?${params}`).then(readJson);
       setDashboard(payload);
@@ -370,6 +387,7 @@ export default function VPNLandingPage() {
                 return;
               }
               const gateMarker = createReferralGateMarker();
+              const visitorId = await getVisitorId();
               window.localStorage.setItem(STORAGE_REFERRAL_GATE_KEY, gateMarker);
               await fetch('/api/referral/prepare', {
                 method: 'POST',
@@ -377,6 +395,7 @@ export default function VPNLandingPage() {
                 body: JSON.stringify({
                   referrer_user_id: referral,
                   referral_token: token,
+                  visitor_id: visitorId || undefined,
                   current_user_id: getStoredCustomerId() || undefined
                 })
               }).then(readJson);
@@ -418,12 +437,14 @@ export default function VPNLandingPage() {
           }
 
           try {
+            const visitorId = await getVisitorId();
             await fetch('/api/referral/status', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 referrer_user_id: referral,
                 referral_token: token,
+                visitor_id: visitorId || undefined,
                 current_user_id: getStoredCustomerId() || undefined
               })
             }).then(readJson);
@@ -583,6 +604,7 @@ export default function VPNLandingPage() {
         return;
       }
 
+      const visitorId = await getVisitorId();
       const authOptions = await fetch('/api/passkeys/authentication/options', {
         method: 'POST'
       }).then(readJson);
@@ -592,7 +614,8 @@ export default function VPNLandingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           challenge_id: authOptions.challenge_id,
-          response: authResponse
+          response: authResponse,
+          visitor_id: visitorId || undefined
         })
       }).then(readJson);
       await finishPasskeySession(verifiedSession);
@@ -601,6 +624,7 @@ export default function VPNLandingPage() {
         setAuthStatus('Создаем вход через устройство');
         const existingCustomerId = getStoredCustomerId();
         const passkeyUserId = existingCustomerId || createCustomerId();
+        const visitorId = await getVisitorId();
         const registrationOptions = await fetch('/api/passkeys/registration/options', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -609,6 +633,7 @@ export default function VPNLandingPage() {
             display_name: 'Пользователь VPN-GO',
             referrer_user_id: referrerId || undefined,
             referral_token: referralToken || undefined,
+            visitor_id: visitorId || undefined,
             current_user_id: existingCustomerId || undefined
           })
         }).then(readJson);
@@ -620,7 +645,8 @@ export default function VPNLandingPage() {
           challenge_id: registrationOptions.challenge_id,
           response: registrationResponse,
           referrer_user_id: referrerId,
-          referral_token: referralToken || undefined
+          referral_token: referralToken || undefined,
+          visitor_id: visitorId || undefined
         })
       }).then(readJson);
         await finishPasskeySession(registeredSession);

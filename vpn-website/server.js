@@ -719,6 +719,16 @@ function requestVisitorKey(req) {
 function requestVisitorKeys(req) {
   const ip = normalizeIp(getClientIp(req)) || '';
   const keys = [requestVisitorKey(req)];
+  const clientVisitorId = typeof req.body?.visitor_id === 'string'
+    ? req.body.visitor_id
+    : typeof req.query?.visitor_id === 'string'
+      ? req.query.visitor_id
+      : typeof req.headers['x-vpngo-visitor-id'] === 'string'
+        ? req.headers['x-vpngo-visitor-id']
+        : '';
+  if (/^[A-Za-z0-9_-]{12,128}$/.test(clientVisitorId)) {
+    keys.push(sha256Hex(`fpjs:${clientVisitorId}`));
+  }
   if (ip) {
     keys.push(sha256Hex(`ip:${ip}`));
   }
