@@ -783,6 +783,22 @@ async function getVisitorAccount(req) {
   return result.rows[0] || null;
 }
 
+async function getRecentVisitorAccount(req, { minutes = 60 * 24 * 30 } = {}) {
+  const result = await pool.query(
+    `
+      SELECT a.*
+      FROM account_visitors av
+      JOIN passkey_accounts a ON a.user_id = av.user_id
+      WHERE av.visitor_key = ANY($1::text[])
+        AND av.last_seen_at >= NOW() - ($2::text || ' minutes')::interval
+      ORDER BY av.last_seen_at DESC
+      LIMIT 1
+    `,
+    [requestVisitorKeys(req), String(minutes)]
+  );
+  return result.rows[0] || null;
+}
+
 async function resolveExistingReferralAccount(req, claimedUserId = null, { allowVisitorLookup = true } = {}) {
   const cookieAccount = await getDeviceCookieAccount(req);
   if (cookieAccount) {
@@ -952,7 +968,7 @@ async function setReferralVisitorUser({ req, referrerUserId, userId }) {
   );
 }
 
-async function applyReferralActivation({ referrerUserId, referralToken, invitedUserId, existingDeviceUserId = null, existingReferralUserId = null }) {
+async function applyReferralActivation({ req, referrerUserId, referralToken, invitedUserId, existingDeviceUserId = null, existingReferralUserId = null }) {
   const referrerId = parseControlPlaneAccountId(referrerUserId);
   const invitedId = parseControlPlaneAccountId(invitedUserId);
   const existingDeviceId = parseControlPlaneAccountId(existingDeviceUserId);
@@ -965,6 +981,12 @@ async function applyReferralActivation({ referrerUserId, referralToken, invitedU
   }
   if (existingReferralId) {
     return { applied: false, reason: 'same_referral_visitor' };
+  }
+  if (req) {
+    const recentAccount = await getRecentVisitorAccount(req);
+    if (recentAccount && String(recentAccount.user_id) !== String(invitedId)) {
+      return { applied: false, reason: 'same_visitor_fingerprint' };
+    }
   }
 
   const referrer = await pool.query(
@@ -1166,13 +1188,25 @@ app.post('/api/referral/status', async (req, res) => {
       referrerUserId: req.body?.referrer_user_id,
       referralToken: req.body?.referral_token
     });
-    const existingAccount = visitor.user_id
-      ? null
-      : await attachExistingAccountToReferralVisitor({
+    let existingAccount = null;
+    if (!visitor.user_id) {
+      existingAccount = await attachExistingAccountToReferralVisitor({
+        req,
+        referrerUserId: req.body?.referrer_user_id,
+        existingUserId: req.body?.current_user_id
+      });
+    }
+    if (!visitor.user_id && !existingAccount) {
+      const recentAccount = await getRecentVisitorAccount(req);
+      if (recentAccount) {
+        await setReferralVisitorUser({
           req,
           referrerUserId: req.body?.referrer_user_id,
-          existingUserId: req.body?.current_user_id
+          userId: recentAccount.user_id
         });
+        existingAccount = recentAccount;
+      }
+    }
     return res.json({
       ok: true,
       known_account: Boolean(visitor.user_id || existingAccount)
@@ -1449,6 +1483,7 @@ app.post('/api/passkeys/registration/verify', async (req, res) => {
     let referral = null;
     try {
       referral = await applyReferralActivation({
+        req,
         referrerUserId: requestedReferrerId,
         referralToken: req.body?.referral_token,
         invitedUserId: challenge.user_id,
