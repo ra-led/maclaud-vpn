@@ -234,6 +234,9 @@ export default function VPNLandingPage() {
   const [isRegeneratingDevice, setIsRegeneratingDevice] = useState(false);
   const [createdConfig, setCreatedConfig] = useState(null);
   const [heroBenefitIndex, setHeroBenefitIndex] = useState(0);
+  const normalizedTopUpAmount = Number(String(topUpAmount).replace(',', '.'));
+  const isTopUpAmountValid = Number.isFinite(normalizedTopUpAmount) && normalizedTopUpAmount >= 30;
+  const topUpAmountHint = topUpAmount.trim() && !isTopUpAmountValid ? 'Минимум 30 рублей' : '';
 
   if (window.location.pathname === '/agreement') {
     return (
@@ -514,9 +517,7 @@ export default function VPNLandingPage() {
   }
 
   async function createPayment() {
-    const amountRub = Number(String(topUpAmount).replace(',', '.'));
-    if (!Number.isFinite(amountRub) || amountRub < 30) {
-      setPaymentError('Минимальная сумма пополнения 30 ₽');
+    if (!isTopUpAmountValid) {
       return;
     }
 
@@ -532,9 +533,9 @@ export default function VPNLandingPage() {
           ...(requestId ? { 'Idempotence-Key': requestId } : {})
         },
         body: JSON.stringify({
-          amount_rub: amountRub,
+          amount_rub: normalizedTopUpAmount,
           plan_name: 'Пополнение баланса VPN-GO',
-          description: `Пополнение баланса VPN-GO на ${amountRub} ₽`,
+          description: `Пополнение баланса VPN-GO на ${normalizedTopUpAmount} ₽`,
           user_id: customerId
         })
       });
@@ -899,22 +900,22 @@ export default function VPNLandingPage() {
                 </label>
                 <div className="mt-2 flex min-w-0 rounded-lg border border-slate-300 bg-white focus-within:border-slate-950">
                   <input
-                    type="number"
+                    type="text"
                     value={topUpAmount}
-                    onChange={(event) => setTopUpAmount(event.target.value)}
-                    onBlur={() => {
-                      const amountRub = Number(String(topUpAmount).replace(',', '.'));
-                      if (!Number.isFinite(amountRub) || amountRub < 30) {
-                        setTopUpAmount('30');
-                      }
+                    onChange={(event) => {
+                      setTopUpAmount(event.target.value);
+                      setPaymentError('');
                     }}
-                    min="30"
-                    step="1"
                     inputMode="numeric"
+                    autoComplete="off"
+                    autoCorrect="off"
                     className="min-w-0 flex-1 rounded-lg px-4 py-3 text-lg font-bold outline-none"
                   />
                   <div className="px-4 py-3 text-lg font-bold text-slate-500">₽</div>
                 </div>
+                {topUpAmountHint && (
+                  <div className="mt-2 text-xs font-semibold text-red-600">{topUpAmountHint}</div>
+                )}
 
                 {paymentError && (
                   <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -924,9 +925,9 @@ export default function VPNLandingPage() {
 
                 <button
                   onClick={createPayment}
-                  disabled={isPaying}
+                  disabled={isPaying || !isTopUpAmountValid}
                   className={`mt-5 w-full rounded-lg bg-lime-400 px-5 py-4 text-base font-black text-slate-950 transition hover:bg-lime-300 ${
-                    isPaying ? 'cursor-not-allowed opacity-70' : ''
+                    isPaying || !isTopUpAmountValid ? 'cursor-not-allowed opacity-50 hover:bg-lime-400' : ''
                   }`}
                 >
                   {isPaying ? 'Переходим к оплате...' : 'Оплатить через ЮKassa'}
