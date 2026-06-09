@@ -410,6 +410,8 @@ async function controlPlaneRequest({ method = 'GET', path: apiPath, body }) {
 }
 
 async function getWebsitePaymentsForUser(userId) {
+  await backfillReferralBonusPaymentsForUser(userId);
+
   const result = await pool.query(
     `SELECT *
      FROM yookassa_payments
@@ -419,6 +421,112 @@ async function getWebsitePaymentsForUser(userId) {
     [String(userId)]
   );
   return result.rows.map(mapPaymentRow);
+}
+
+async function saveBonusPaymentRecord({
+  userId,
+  externalPaymentId,
+  amountKopecks,
+  description,
+  metadata = {},
+  createdAt = null
+}) {
+  const amountValue = (amountKopecks / 100).toFixed(2);
+  await pool.query(
+    `
+      INSERT INTO yookassa_payments (
+        yookassa_payment_id,
+        user_id,
+        order_id,
+        plan_name,
+        amount_value,
+        currency,
+        status,
+        description,
+        yookassa_payload,
+        metadata,
+        paid_at,
+        created_at,
+        updated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5::numeric, 'RUB', 'bonus', $6, $7::jsonb, $8::jsonb,
+        COALESCE($9::timestamptz, NOW()),
+        COALESCE($9::timestamptz, NOW()),
+        NOW()
+      )
+      ON CONFLICT (yookassa_payment_id)
+      DO UPDATE SET
+        user_id = COALESCE(EXCLUDED.user_id, yookassa_payments.user_id),
+        amount_value = EXCLUDED.amount_value,
+        status = 'bonus',
+        description = COALESCE(EXCLUDED.description, yookassa_payments.description),
+        metadata = yookassa_payments.metadata || EXCLUDED.metadata,
+        updated_at = NOW()
+    `,
+    [
+      externalPaymentId,
+      String(userId),
+      'Реферальный бонус',
+      'Реферальный бонус',
+      amountValue,
+      description || 'Бонус по приглашению',
+      JSON.stringify({ id: externalPaymentId, object: 'bonus', status: 'bonus' }),
+      JSON.stringify(sanitizeMetadata(metadata)),
+      createdAt
+    ]
+  );
+}
+
+async function saveReferralBonusPaymentRecords({ referrerId, invitedId, amountKopecks, createdAt = null }) {
+  await Promise.all([
+    saveBonusPaymentRecord({
+      userId: referrerId,
+      externalPaymentId: `referral-${invitedId}-referrer`,
+      amountKopecks,
+      description: 'Бонус за приглашение',
+      metadata: {
+        provider: 'referral',
+        referral_role: 'referrer',
+        invited_user_id: String(invitedId)
+      },
+      createdAt
+    }),
+    saveBonusPaymentRecord({
+      userId: invitedId,
+      externalPaymentId: `referral-${invitedId}-invited`,
+      amountKopecks,
+      description: 'Бонус по приглашению',
+      metadata: {
+        provider: 'referral',
+        referral_role: 'invited',
+        referrer_user_id: String(referrerId)
+      },
+      createdAt
+    })
+  ]);
+}
+
+async function backfillReferralBonusPaymentsForUser(userId) {
+  const result = await pool.query(
+    `
+      SELECT referrer_user_id, invited_user_id, bonus_kopecks, awarded_at, created_at
+      FROM referral_activations
+      WHERE status = 'awarded'
+        AND (referrer_user_id = $1 OR invited_user_id = $1)
+      ORDER BY COALESCE(awarded_at, created_at) DESC
+      LIMIT 50
+    `,
+    [String(userId)]
+  );
+
+  await Promise.all(result.rows.map((row) => (
+    saveReferralBonusPaymentRecords({
+      referrerId: row.referrer_user_id,
+      invitedId: row.invited_user_id,
+      amountKopecks: row.bonus_kopecks,
+      createdAt: row.awarded_at || row.created_at
+    })
+  )));
 }
 
 function createControlPlaneAccountId() {
@@ -790,6 +898,12 @@ async function applyReferralActivation({ referrerUserId, invitedUserId, existing
         }
       })
     ]);
+
+    await saveReferralBonusPaymentRecords({
+      referrerId,
+      invitedId,
+      amountKopecks: REFERRAL_BONUS_KOPECKS
+    });
 
     await pool.query(
       `
