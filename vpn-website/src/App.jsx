@@ -1,6 +1,6 @@
 import QRCode from 'qrcode';
 import { browserSupportsWebAuthn, startAuthentication, startRegistration } from '@simplewebauthn/browser';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { userAgreementText } from './userAgreement.js';
 
 const STORAGE_PROFILE_KEY = 'vpngo_profile';
@@ -233,6 +233,7 @@ export default function VPNLandingPage() {
   const [devicePendingRegenerate, setDevicePendingRegenerate] = useState(null);
   const [isRegeneratingDevice, setIsRegeneratingDevice] = useState(false);
   const [createdConfig, setCreatedConfig] = useState(null);
+  const configRevealTimerRef = useRef(null);
   const [heroBenefitIndex, setHeroBenefitIndex] = useState(0);
   const normalizedTopUpAmount = Number(String(topUpAmount).replace(',', '.'));
   const isTopUpAmountValid = Number.isFinite(normalizedTopUpAmount) && normalizedTopUpAmount >= 30;
@@ -366,6 +367,21 @@ export default function VPNLandingPage() {
 
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => (
+    () => {
+      if (configRevealTimerRef.current) {
+        window.clearTimeout(configRevealTimerRef.current);
+      }
+    }
+  ), []);
+
+  function clearPendingConfigReveal() {
+    if (configRevealTimerRef.current) {
+      window.clearTimeout(configRevealTimerRef.current);
+      configRevealTimerRef.current = null;
+    }
+  }
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -510,6 +526,7 @@ export default function VPNLandingPage() {
   function logout() {
     window.localStorage.removeItem(STORAGE_PROFILE_KEY);
     window.localStorage.removeItem(STORAGE_CUSTOMER_KEY);
+    clearPendingConfigReveal();
     setProfile(null);
     setCustomerId('');
     setDashboard(null);
@@ -561,6 +578,7 @@ export default function VPNLandingPage() {
     }
 
     setDeviceError('');
+    clearPendingConfigReveal();
     setCreatedConfig(null);
     setIsCreatingDevice(true);
     try {
@@ -597,6 +615,7 @@ export default function VPNLandingPage() {
         method: 'DELETE'
       }).then(readJson);
       setDevicePendingDelete(null);
+      clearPendingConfigReveal();
       setCreatedConfig(null);
       await loadAccount();
     } catch (error) {
@@ -624,12 +643,19 @@ export default function VPNLandingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: customerId })
       }).then(readJson);
-      setCreatedConfig(await withQrDataUrl({
+      const nextConfig = await withQrDataUrl({
         ...payload,
         device_name: devicePendingRegenerate.name
-      }));
+      });
+
+      clearPendingConfigReveal();
       setDevicePendingRegenerate(null);
+      setCreatedConfig(null);
       await loadAccount();
+      configRevealTimerRef.current = window.setTimeout(() => {
+        setCreatedConfig(nextConfig);
+        configRevealTimerRef.current = null;
+      }, 650);
     } catch (error) {
       setDeviceError(userMessage(error, 'Не удалось обновить конфиг'));
     } finally {
@@ -638,6 +664,8 @@ export default function VPNLandingPage() {
   }
 
   async function openDeviceConfig(device) {
+    clearPendingConfigReveal();
+
     if (createdConfig?.device_id === device.id) {
       setCreatedConfig(null);
       return;
