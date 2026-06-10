@@ -27,6 +27,7 @@ const PUBLIC_BASE_URL = new URL(BASE_URL);
 const WEBAUTHN_RP_ID = process.env.WEBAUTHN_RP_ID || PUBLIC_BASE_URL.hostname;
 const WEBAUTHN_RP_NAME = process.env.WEBAUTHN_RP_NAME || 'VPN-GO';
 const WEBAUTHN_ORIGIN = process.env.WEBAUTHN_ORIGIN || PUBLIC_BASE_URL.origin;
+const SESSION_SECRET = process.env.SESSION_SECRET || CONTROL_PLANE_INTERNAL_TOKEN || SECRET_KEY;
 const ENFORCE_IP_FILTER =
   process.env.YOOKASSA_ENFORCE_IP_FILTER === 'true' ||
   (process.env.YOOKASSA_ENFORCE_IP_FILTER !== 'false' && NODE_ENV === 'production');
@@ -54,6 +55,8 @@ const REFERRAL_BONUS_KOPECKS = 5000;
 const REFERRAL_MONTHLY_LIMIT = 3;
 const ACCOUNT_COOKIE_NAME = 'vpngo_account_id';
 const ACCOUNT_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
+const SESSION_COOKIE_NAME = 'vpngo_session';
+const SESSION_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 const REFERRAL_GUARD_COOKIE_NAME = 'vpngo_referral_guard';
 const REFERRAL_GUARD_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 
@@ -89,6 +92,10 @@ function validateStartupConfig() {
 
   if (CONTROL_PLANE_SYNC_ENABLED && !CONTROL_PLANE_INTERNAL_TOKEN) {
     throw new Error('CONTROL_PLANE_INTERNAL_TOKEN is required when control-plane sync is enabled');
+  }
+
+  if (!SESSION_SECRET) {
+    throw new Error('SESSION_SECRET is required for signed account sessions');
   }
 }
 
@@ -688,6 +695,114 @@ function setAccountCookie(res, userId) {
   setCookie(res, ACCOUNT_COOKIE_NAME, String(accountId), ACCOUNT_COOKIE_MAX_AGE_SECONDS);
 }
 
+function clearCookie(res, name) {
+  const attrs = [
+    `${name}=`,
+    'Max-Age=0',
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax'
+  ];
+  if (NODE_ENV === 'production') {
+    attrs.push('Secure');
+  }
+  const cookie = attrs.join('; ');
+  const existing = res.getHeader('Set-Cookie');
+  if (!existing) {
+    res.setHeader('Set-Cookie', cookie);
+    return;
+  }
+  res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, cookie] : [existing, cookie]);
+}
+
+function signSessionPayload(payload) {
+  return crypto
+    .createHmac('sha256', SESSION_SECRET)
+    .update(payload)
+    .digest('base64url');
+}
+
+function createSessionToken(userId) {
+  const accountId = parseControlPlaneAccountId(userId);
+  if (!accountId) {
+    return '';
+  }
+  const payload = Buffer.from(JSON.stringify({
+    uid: String(accountId),
+    exp: Math.floor(Date.now() / 1000) + SESSION_COOKIE_MAX_AGE_SECONDS
+  })).toString('base64url');
+  return `${payload}.${signSessionPayload(payload)}`;
+}
+
+function getAuthSession(req) {
+  const cookies = parseCookies(req.headers.cookie || '');
+  const token = typeof cookies[SESSION_COOKIE_NAME] === 'string' ? cookies[SESSION_COOKIE_NAME] : '';
+  const [payload, signature] = token.split('.');
+  if (!payload || !signature) {
+    return null;
+  }
+
+  const expected = signSessionPayload(payload);
+  const signatureBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (signatureBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(signatureBuffer, expectedBuffer)) {
+    return null;
+  }
+
+  try {
+    const session = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    const accountId = parseControlPlaneAccountId(session.uid);
+    if (!accountId || Number(session.exp || 0) < Math.floor(Date.now() / 1000)) {
+      return null;
+    }
+    return { userId: accountId };
+  } catch (_error) {
+    return null;
+  }
+}
+
+function setAuthSessionCookie(res, userId) {
+  const token = createSessionToken(userId);
+  if (!token) {
+    return;
+  }
+  setCookie(res, SESSION_COOKIE_NAME, token, SESSION_COOKIE_MAX_AGE_SECONDS);
+}
+
+function clearAuthCookies(res) {
+  clearCookie(res, SESSION_COOKIE_NAME);
+}
+
+function requireAuth(req, res, next) {
+  const session = getAuthSession(req);
+  if (!session?.userId) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  req.auth = session;
+  return next();
+}
+
+const rateLimitBuckets = new Map();
+
+function rateLimit({ windowMs, max, keyPrefix }) {
+  return (req, res, next) => {
+    const now = Date.now();
+    const ip = normalizeIp(getClientIp(req)) || 'unknown';
+    const key = `${keyPrefix}:${ip}:${req.path}`;
+    const bucket = rateLimitBuckets.get(key);
+    if (!bucket || bucket.resetAt <= now) {
+      rateLimitBuckets.set(key, { count: 1, resetAt: now + windowMs });
+      return next();
+    }
+    bucket.count += 1;
+    if (bucket.count > max) {
+      res.setHeader('Retry-After', String(Math.ceil((bucket.resetAt - now) / 1000)));
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+    return next();
+  };
+}
+
 function getReferralGuardCookie(req) {
   const cookies = parseCookies(req.headers.cookie || '');
   return typeof cookies[REFERRAL_GUARD_COOKIE_NAME] === 'string' ? cookies[REFERRAL_GUARD_COOKIE_NAME] : '';
@@ -757,6 +872,11 @@ async function getDeviceCookieAccount(req) {
   return getPasskeyAccount(accountId);
 }
 
+async function getSessionAccount(req) {
+  const session = getAuthSession(req);
+  return getPasskeyAccount(session?.userId);
+}
+
 async function rememberAccountVisitor(req, userId) {
   const accountId = parseControlPlaneAccountId(userId);
   if (!accountId) {
@@ -809,14 +929,10 @@ async function getRecentVisitorAccount(req, { minutes = 60 * 24 * 30 } = {}) {
   return result.rows[0] || null;
 }
 
-async function resolveExistingReferralAccount(req, claimedUserId = null, { allowVisitorLookup = true } = {}) {
-  const cookieAccount = await getDeviceCookieAccount(req);
-  if (cookieAccount) {
-    return cookieAccount;
-  }
-  const claimedAccount = await getPasskeyAccount(claimedUserId);
-  if (claimedAccount) {
-    return claimedAccount;
+async function resolveExistingReferralAccount(req, _claimedUserId = null, { allowVisitorLookup = true } = {}) {
+  const sessionAccount = await getSessionAccount(req);
+  if (sessionAccount) {
+    return sessionAccount;
   }
   if (!allowVisitorLookup) {
     return null;
@@ -1175,6 +1291,10 @@ function sendApiError(res, error, fallback = 'Unexpected API error') {
   });
 }
 
+app.use('/api/passkeys', rateLimit({ windowMs: 60_000, max: 20, keyPrefix: 'passkeys' }));
+app.use('/api/create-payment', rateLimit({ windowMs: 60_000, max: 8, keyPrefix: 'payment-create' }));
+app.use('/api/devices', rateLimit({ windowMs: 60_000, max: 60, keyPrefix: 'devices' }));
+
 app.post('/api/referral/prepare', async (req, res) => {
   try {
     const referral = await prepareReferralVisitor({
@@ -1300,18 +1420,19 @@ app.post('/api/passkeys/authentication/verify', async (req, res) => {
       `,
       [credentialRow.credential_id, verification.authenticationInfo.newCounter]
     );
-    const deviceCookieAccount = await getDeviceCookieAccount(req);
-    if (deviceCookieAccount && String(deviceCookieAccount.user_id) !== String(credentialRow.user_id)) {
+    const sessionAccount = await getSessionAccount(req);
+    if (sessionAccount && String(sessionAccount.user_id) !== String(credentialRow.user_id)) {
       await pool.query(
         'UPDATE passkey_accounts SET last_login_at = NOW() WHERE user_id = $1',
-        [deviceCookieAccount.user_id]
+        [sessionAccount.user_id]
       );
-      await rememberAccountVisitor(req, deviceCookieAccount.user_id);
-      setAccountCookie(res, deviceCookieAccount.user_id);
+      await rememberAccountVisitor(req, sessionAccount.user_id);
+      setAccountCookie(res, sessionAccount.user_id);
+      setAuthSessionCookie(res, sessionAccount.user_id);
       return res.json({
-        user_id: deviceCookieAccount.user_id,
-        profile: passkeyProfile(deviceCookieAccount),
-        device_cookie_account: true
+        user_id: sessionAccount.user_id,
+        profile: passkeyProfile(sessionAccount),
+        session_account: true
       });
     }
 
@@ -1321,6 +1442,7 @@ app.post('/api/passkeys/authentication/verify', async (req, res) => {
     );
     await rememberAccountVisitor(req, credentialRow.user_id);
     setAccountCookie(res, credentialRow.user_id);
+    setAuthSessionCookie(res, credentialRow.user_id);
     return res.json({
       user_id: credentialRow.user_id,
       profile: passkeyProfile(credentialRow)
@@ -1353,11 +1475,11 @@ app.post('/api/passkeys/registration/options', async (req, res) => {
       }
     }
 
-    const deviceCookieAccount = await getDeviceCookieAccount(req);
+    const sessionAccount = await getSessionAccount(req);
     const referralVisitorAccount = referralVisitor?.user_id ? await getPasskeyAccount(referralVisitor.user_id) : null;
-    const userId = Number(deviceCookieAccount?.user_id || referralVisitorAccount?.user_id || parseControlPlaneAccountId(req.body?.user_id) || createControlPlaneAccountId());
+    const userId = Number(sessionAccount?.user_id || referralVisitorAccount?.user_id || createControlPlaneAccountId());
     const displayName = normalizeDisplayName(req.body?.display_name);
-    const shouldUpdateDisplayName = !deviceCookieAccount && !referralVisitorAccount;
+    const shouldUpdateDisplayName = !sessionAccount && !referralVisitorAccount;
 
     await pool.query(
       `
@@ -1512,6 +1634,7 @@ app.post('/api/passkeys/registration/verify', async (req, res) => {
     });
     await rememberAccountVisitor(req, challenge.user_id);
     setAccountCookie(res, challenge.user_id);
+    setAuthSessionCookie(res, challenge.user_id);
     return res.json({
       user_id: challenge.user_id,
       profile: passkeyProfile(account),
@@ -1523,10 +1646,16 @@ app.post('/api/passkeys/registration/verify', async (req, res) => {
   }
 });
 
-app.get('/api/account/:userId', async (req, res) => {
-  const accountId = parseControlPlaneAccountId(req.params.userId);
-  if (!accountId) {
-    return res.status(400).json({ error: 'Invalid account id' });
+app.post('/api/logout', (_req, res) => {
+  clearAuthCookies(res);
+  return res.json({ ok: true });
+});
+
+app.get('/api/account/:userId', requireAuth, async (req, res) => {
+  const requestedAccountId = parseControlPlaneAccountId(req.params.userId);
+  const accountId = req.auth.userId;
+  if (!requestedAccountId || requestedAccountId !== accountId) {
+    return res.status(403).json({ error: 'Forbidden' });
   }
 
   try {
@@ -1556,12 +1685,9 @@ app.get('/api/account/:userId', async (req, res) => {
   }
 });
 
-app.post('/api/devices', async (req, res) => {
-  const accountId = parseControlPlaneAccountId(req.body?.user_id);
+app.post('/api/devices', requireAuth, async (req, res) => {
+  const accountId = req.auth.userId;
   const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
-  if (!accountId) {
-    return res.status(400).json({ error: 'Invalid account id' });
-  }
   if (!name) {
     return res.status(400).json({ error: 'Device name is required' });
   }
@@ -1579,10 +1705,10 @@ app.post('/api/devices', async (req, res) => {
   }
 });
 
-app.delete('/api/devices/:deviceId', async (req, res) => {
-  const accountId = parseControlPlaneAccountId(req.query.user_id);
+app.delete('/api/devices/:deviceId', requireAuth, async (req, res) => {
+  const accountId = req.auth.userId;
   const deviceId = Number(req.params.deviceId);
-  if (!accountId || !Number.isSafeInteger(deviceId) || deviceId <= 0) {
+  if (!Number.isSafeInteger(deviceId) || deviceId <= 0) {
     return res.status(400).json({ error: 'Invalid delete request' });
   }
 
@@ -1598,10 +1724,10 @@ app.delete('/api/devices/:deviceId', async (req, res) => {
   }
 });
 
-app.post('/api/devices/:deviceId/regenerate', async (req, res) => {
-  const accountId = parseControlPlaneAccountId(req.body?.user_id);
+app.post('/api/devices/:deviceId/regenerate', requireAuth, async (req, res) => {
+  const accountId = req.auth.userId;
   const deviceId = Number(req.params.deviceId);
-  if (!accountId || !Number.isSafeInteger(deviceId) || deviceId <= 0) {
+  if (!Number.isSafeInteger(deviceId) || deviceId <= 0) {
     return res.status(400).json({ error: 'Invalid regenerate request' });
   }
 
@@ -1618,10 +1744,10 @@ app.post('/api/devices/:deviceId/regenerate', async (req, res) => {
   }
 });
 
-app.get('/api/devices/:deviceId/config', async (req, res) => {
-  const accountId = parseControlPlaneAccountId(req.query.user_id);
+app.get('/api/devices/:deviceId/config', requireAuth, async (req, res) => {
+  const accountId = req.auth.userId;
   const deviceId = Number(req.params.deviceId);
-  if (!accountId || !Number.isSafeInteger(deviceId) || deviceId <= 0) {
+  if (!Number.isSafeInteger(deviceId) || deviceId <= 0) {
     return res.status(400).json({ error: 'Invalid config request' });
   }
 
@@ -1664,31 +1790,33 @@ app.get('/api/devices/:deviceId/config', async (req, res) => {
   }
 });
 
-app.post('/api/create-payment', async (req, res) => {
+app.post('/api/create-payment', requireAuth, async (req, res) => {
   if (!requireYookassaConfig(res)) {
     return;
   }
 
   const {
-    user_id,
     amount_rub = 100,
     description,
-    plan_name = null,
-    order_id: providedOrderId = null
+    plan_name = null
   } = req.body || {};
+  const userId = String(req.auth.userId);
 
   const amountValue = toAmountValue(amount_rub);
   if (!amountValue) {
     return res.status(400).json({ error: 'amount_rub must be a positive number' });
   }
 
-  const orderId = providedOrderId || crypto.randomUUID();
+  const orderId = crypto.randomUUID();
   const incomingIdempotenceKey = req.header('Idempotence-Key');
   const idempotenceKey = incomingIdempotenceKey || makeIdempotenceKey();
 
   try {
     const existingByKey = await getPaymentByIdempotenceKey(idempotenceKey);
     if (existingByKey?.confirmation_url) {
+      if (String(existingByKey.user_id || '') !== userId) {
+        return res.status(409).json({ error: 'Idempotence key belongs to another account' });
+      }
       return res.json({
         ...mapPaymentRow(existingByKey),
         confirmation_url: existingByKey.confirmation_url
@@ -1698,6 +1826,7 @@ app.post('/api/create-payment', async (req, res) => {
     const existingByOrder = await getPaymentByOrderId(orderId);
     if (
       existingByOrder &&
+      String(existingByOrder.user_id || '') === userId &&
       ['pending', 'waiting_for_capture'].includes(existingByOrder.status) &&
       existingByOrder.confirmation_url
     ) {
@@ -1720,7 +1849,7 @@ app.post('/api/create-payment', async (req, res) => {
         },
         description: description || `VPN payment ${orderId}`,
         metadata: {
-          user_id: user_id ? String(user_id) : '',
+          user_id: userId,
           order_id: orderId,
           plan_name: plan_name ? String(plan_name) : ''
         }
@@ -1735,7 +1864,7 @@ app.post('/api/create-payment', async (req, res) => {
 
     const row = await savePaymentRecord({
       payment: createResponse.payload,
-      userId: user_id ? String(user_id) : null,
+      userId,
       orderId,
       planName: plan_name ? String(plan_name) : null,
       description: description || null,
@@ -1845,7 +1974,7 @@ app.post('/api/yookassa-webhook', async (req, res) => {
   }
 });
 
-app.get('/api/payment-status/:paymentId', async (req, res) => {
+app.get('/api/payment-status/:paymentId', requireAuth, async (req, res) => {
   if (!requireYookassaConfig(res)) {
     return;
   }
@@ -1860,12 +1989,18 @@ app.get('/api/payment-status/:paymentId', async (req, res) => {
         apiPath: `/v3/payments/${encodeURIComponent(paymentId)}`
       })
     ]);
+    if (localPayment && String(localPayment.user_id || '') !== String(req.auth.userId)) {
+      return res.status(404).json({ error: 'Payment was not found' });
+    }
 
     if (!remotePayment.ok || !remotePayment.payload?.id) {
       return res.status(remotePayment.status || 502).json({
         error: 'Failed to get YooKassa payment status',
         local: localPayment ? mapPaymentRow(localPayment) : null
       });
+    }
+    if (String(remotePayment.payload.metadata?.user_id || '') !== String(req.auth.userId)) {
+      return res.status(404).json({ error: 'Payment was not found' });
     }
 
     const synced = await savePaymentRecord({
@@ -1891,7 +2026,7 @@ app.get('/api/payment-status/:paymentId', async (req, res) => {
   }
 });
 
-app.get('/api/payment-status-by-order/:orderId', async (req, res) => {
+app.get('/api/payment-status-by-order/:orderId', requireAuth, async (req, res) => {
   if (!requireYookassaConfig(res)) {
     return;
   }
@@ -1901,6 +2036,9 @@ app.get('/api/payment-status-by-order/:orderId', async (req, res) => {
   try {
     const localPayment = await getPaymentByOrderId(orderId);
     if (!localPayment?.yookassa_payment_id) {
+      return res.status(404).json({ error: 'Payment order was not found' });
+    }
+    if (String(localPayment.user_id || '') !== String(req.auth.userId)) {
       return res.status(404).json({ error: 'Payment order was not found' });
     }
 
@@ -1914,6 +2052,9 @@ app.get('/api/payment-status-by-order/:orderId', async (req, res) => {
         error: 'Failed to get YooKassa payment status',
         local: mapPaymentRow(localPayment)
       });
+    }
+    if (String(remotePayment.payload.metadata?.user_id || '') !== String(req.auth.userId)) {
+      return res.status(404).json({ error: 'Payment order was not found' });
     }
 
     const synced = await savePaymentRecord({

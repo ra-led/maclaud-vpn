@@ -350,6 +350,14 @@ export default function VPNLandingPage() {
       const payload = await fetch(`/api/account/${currentCustomerId}?${params}`).then(readJson);
       setDashboard(payload);
     } catch (error) {
+      if (error?.status === 401 || error?.status === 403) {
+        window.localStorage.removeItem(STORAGE_PROFILE_KEY);
+        window.localStorage.removeItem(STORAGE_CUSTOMER_KEY);
+        setProfile(null);
+        setCustomerId('');
+        setDashboard(null);
+        return;
+      }
       setAccountError(userMessage(error, 'Не удалось загрузить личный кабинет'));
     } finally {
       setIsLoadingAccount(false);
@@ -660,6 +668,7 @@ export default function VPNLandingPage() {
   }
 
   function logout() {
+    fetch('/api/logout', { method: 'POST' }).catch(() => {});
     window.localStorage.removeItem(STORAGE_PROFILE_KEY);
     window.localStorage.removeItem(STORAGE_CUSTOMER_KEY);
     window.localStorage.removeItem(STORAGE_REFERRAL_TOKEN_KEY);
@@ -690,8 +699,7 @@ export default function VPNLandingPage() {
         body: JSON.stringify({
           amount_rub: normalizedTopUpAmount,
           plan_name: 'Пополнение баланса VPN-GO',
-          description: `Пополнение баланса VPN-GO на ${normalizedTopUpAmount} ₽`,
-          user_id: customerId
+          description: `Пополнение баланса VPN-GO на ${normalizedTopUpAmount} ₽`
         })
       });
 
@@ -723,7 +731,7 @@ export default function VPNLandingPage() {
       const payload = await fetch('/api/devices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: customerId, name })
+        body: JSON.stringify({ name })
       }).then(readJson);
 
       setCreatedConfig(await withQrDataUrl({ ...payload, device_name: name }));
@@ -749,7 +757,7 @@ export default function VPNLandingPage() {
     setDeviceError('');
     setIsDeletingDevice(true);
     try {
-      await fetch(`/api/devices/${devicePendingDelete.id}?user_id=${encodeURIComponent(customerId)}`, {
+      await fetch(`/api/devices/${devicePendingDelete.id}`, {
         method: 'DELETE'
       }).then(readJson);
       setDevicePendingDelete(null);
@@ -779,7 +787,7 @@ export default function VPNLandingPage() {
       const payload = await fetch(`/api/devices/${devicePendingRegenerate.id}/regenerate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: customerId })
+        body: JSON.stringify({})
       }).then(readJson);
       const nextConfig = await withQrDataUrl({
         ...payload,
@@ -812,9 +820,7 @@ export default function VPNLandingPage() {
     setDeviceError('');
     setLoadingConfigDeviceId(device.id);
     try {
-      const payload = await fetch(
-        `/api/devices/${device.id}/config?user_id=${encodeURIComponent(customerId)}`
-      ).then(readJson);
+      const payload = await fetch(`/api/devices/${device.id}/config`).then(readJson);
       setCreatedConfig(await withQrDataUrl({
         ...payload,
         device_name: device.name,
