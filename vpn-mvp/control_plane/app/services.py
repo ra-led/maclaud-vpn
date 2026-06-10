@@ -4,6 +4,7 @@ from typing import Any
 import httpx
 from fastapi import HTTPException
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -193,7 +194,7 @@ def regenerate_device_config(db: Session, device: Device) -> dict:
         try:
             push_peer_command(old_node, method='DELETE', path=f'/peers/{device.id}')
         except Exception:
-            pass
+            queue_peer_command(old_node, method='DELETE', path=f'/peers/{device.id}')
 
     return {'conf_text': conf_text, 'qr_png_base64': edge_result['qr_png_base64']}
 
@@ -275,15 +276,29 @@ def resume_user_devices_if_possible(db: Session, user: User) -> None:
 
 
 def run_daily_billing(db: Session) -> dict:
+    billing_date = date.today()
     charged_users = 0
     suspended_users = 0
+    skipped_users = 0
     users = db.scalars(select(User).where(User.status == UserStatus.active)).all()
 
     for user in users:
+        existing_event = db.scalar(
+            select(BillingEvent).where(
+                BillingEvent.user_id == user.id,
+                BillingEvent.event_type == 'daily_charge',
+                BillingEvent.billing_date == billing_date,
+            )
+        )
+        if existing_event:
+            skipped_users += 1
+            continue
+
         active_count = db.scalar(select(func.count(Device.id)).where(Device.user_id == user.id, Device.status == DeviceStatus.active)) or 0
         if active_count == 0:
             continue
         charge = active_count * settings.daily_device_price_kopecks
+        processed_kind: str | None = None
         if user.balance_kopecks >= charge:
             user.balance_kopecks -= charge
             db.add(
@@ -292,14 +307,35 @@ def run_daily_billing(db: Session) -> dict:
                     amount_kopecks=-charge,
                     event_type='daily_charge',
                     description=f'{active_count} active devices x {settings.daily_device_price_kopecks}',
+                    billing_date=billing_date,
                 )
             )
             charged_users += 1
+            processed_kind = 'charged'
         else:
             suspend_user_devices(db, user, reason='insufficient funds')
+            db.add(
+                BillingEvent(
+                    user_id=user.id,
+                    amount_kopecks=0,
+                    event_type='daily_charge',
+                    description=f'insufficient funds for {active_count} active devices x {settings.daily_device_price_kopecks}',
+                    billing_date=billing_date,
+                )
+            )
             suspended_users += 1
-    db.commit()
-    return {'charged_users': charged_users, 'suspended_users': suspended_users}
+            processed_kind = 'suspended'
+
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            skipped_users += 1
+            if processed_kind == 'charged':
+                charged_users -= 1
+            elif processed_kind == 'suspended':
+                suspended_users -= 1
+    return {'charged_users': charged_users, 'suspended_users': suspended_users, 'skipped_users': skipped_users, 'billing_date': billing_date.isoformat()}
 
 
 def mark_offline_nodes(db: Session) -> int:
@@ -343,3 +379,48 @@ def device_total_usage(db: Session, device_id: int) -> tuple[int, int]:
 
 def get_device_private_key(device: Device) -> str:
     return decrypt_secret(device.private_key_encrypted)
+
+
+def reconcile_node_peers(db: Session, node: Node) -> dict:
+    edge_state = push_peer_command(node, method='GET', path='/peers')
+    edge_peers = {
+        int(peer['device_id']): peer
+        for peer in edge_state.get('peers', [])
+        if str(peer.get('device_id', '')).isdigit()
+    }
+    db_devices = db.scalars(select(Device).where(Device.node_id == node.id, Device.status != DeviceStatus.deleted)).all()
+    db_by_id = {device.id: device for device in db_devices}
+
+    deleted_extra: list[int] = []
+    suspended: list[int] = []
+    resumed: list[int] = []
+    missing_active: list[int] = []
+
+    for device_id, peer in edge_peers.items():
+        device = db_by_id.get(device_id)
+        if not device:
+            push_peer_command(node, method='DELETE', path=f'/peers/{device_id}')
+            deleted_extra.append(device_id)
+            continue
+        if device.status == DeviceStatus.suspended and peer.get('status') == 'active':
+            push_peer_command(node, method='POST', path=f'/peers/{device_id}/suspend', payload={'reason': 'reconcile_db_suspended'})
+            suspended.append(device_id)
+        elif device.status == DeviceStatus.active and peer.get('status') != 'active':
+            push_peer_command(node, method='POST', path=f'/peers/{device_id}/resume', payload={})
+            resumed.append(device_id)
+
+    for device in db_devices:
+        if device.status == DeviceStatus.active and device.id not in edge_peers:
+            missing_active.append(device.id)
+
+    node.active_clients = db.scalar(select(func.count(Device.id)).where(Device.node_id == node.id, Device.status == DeviceStatus.active)) or 0
+    db.commit()
+    return {
+        'node_id': node.id,
+        'edge_peer_count': len(edge_peers),
+        'db_device_count': len(db_devices),
+        'deleted_extra': deleted_extra,
+        'suspended': suspended,
+        'resumed': resumed,
+        'missing_active': missing_active,
+    }

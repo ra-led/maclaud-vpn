@@ -35,6 +35,7 @@ from app.services import (
     get_or_create_user,
     mark_payment_confirmed,
     queue_peer_command,
+    reconcile_node_peers,
     regenerate_device_config,
     run_daily_billing,
     update_device_usage,
@@ -669,6 +670,18 @@ def run_billing(
     db: Session = Depends(get_db),
 ) -> dict:
     return run_daily_billing(db)
+
+
+@app.post("/internal/nodes/{node_id}/reconcile")
+def reconcile_node(
+    node_id: int,
+    _: None = Depends(require_internal_token),
+    db: Session = Depends(get_db),
+) -> dict:
+    node = db.scalar(select(Node).where(Node.id == node_id))
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    return reconcile_node_peers(db, node)
 
 
 @app.post("/internal/devices/{device_id}/config")

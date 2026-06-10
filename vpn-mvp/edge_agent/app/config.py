@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     edge_agent_url: str = "auto"
     control_plane_url: str = "https://control.example.com"
     edge_shared_secret: str = "dev-secret"
+    app_env: str = "development"
     awg_interface: str = "awg0"
     awg_generator_cmd: str = "/usr/local/sbin/awg-new-client"
     awg_server_conf: str = "/etc/amnezia/amneziawg/awg0.conf"
@@ -33,7 +34,17 @@ class Settings(BaseSettings):
     def resolved_control_plane_url(self) -> str:
         return self.control_plane_url.rstrip("/")
 
+    def validate_for_runtime(self) -> None:
+        if self.app_env.lower() != "production":
+            return
+        if self.edge_shared_secret in {"", "dev-secret", "replace_me_shared_secret"} or len(self.edge_shared_secret) < 24:
+            raise RuntimeError("Unsafe production EDGE_SHARED_SECRET")
+        if self.resolved_edge_agent_url.startswith("http://") and self.edge_agent_url.lower() == "auto":
+            raise RuntimeError("Production EDGE_AGENT_URL must not rely on public plaintext auto URL")
+
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    settings.validate_for_runtime()
+    return settings

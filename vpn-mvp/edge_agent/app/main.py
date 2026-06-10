@@ -290,6 +290,23 @@ def health() -> dict:
     return {"status": "ok", "node_id": state.node_id, "peers": len(state.peers)}
 
 
+@app.get("/peers")
+def list_peers(x_edge_token: str | None = Header(default=None)) -> dict:
+    ensure_internal_auth(x_edge_token)
+    return {
+        "peers": [
+            {
+                "device_id": peer.device_id,
+                "name": peer.name,
+                "public_key": peer.public_key,
+                "vpn_ip": peer.vpn_ip,
+                "status": peer.status,
+            }
+            for peer in state.peers.values()
+        ]
+    }
+
+
 @app.post("/peers")
 def create_peer(payload: PeerCreateIn, x_edge_token: str | None = Header(default=None)) -> dict:
     ensure_internal_auth(x_edge_token)

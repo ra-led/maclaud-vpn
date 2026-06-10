@@ -6,8 +6,8 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from sqlalchemy import func, select
 
 from app.db import SessionLocal
-from app.models import AuditLog, Device, DeviceStatus, DeviceUsageDaily, Node, User
-from app.services import mark_offline_nodes, resume_user_devices_if_possible, run_daily_billing
+from app.models import AuditLog, Device, DeviceStatus, DeviceUsageDaily, Node, NodeStatus, User
+from app.services import mark_offline_nodes, reconcile_node_peers, resume_user_devices_if_possible, run_daily_billing
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -36,6 +36,34 @@ def health_and_resume_job() -> None:
                 resume_user_devices_if_possible(db, user)
                 resumed += 1
         logging.info("resume check done, users_checked=%s", resumed)
+
+
+def reconcile_nodes_job() -> None:
+    with SessionLocal() as db:
+        nodes = db.scalars(select(Node).where(Node.status == NodeStatus.healthy)).all()
+        reconciled = 0
+        failed = 0
+        for node in nodes:
+            try:
+                result = reconcile_node_peers(db, node)
+                reconciled += 1
+                logging.info("node reconcile done: %s", result)
+            except Exception as exc:  # noqa: BLE001
+                failed += 1
+                logging.exception("node reconcile failed node_id=%s", node.id)
+                db.rollback()
+                db.add(
+                    AuditLog(
+                        actor_type="scheduler",
+                        actor_id="reconcile",
+                        entity_type="node",
+                        entity_id=str(node.id),
+                        action="node_reconcile_failed",
+                        payload_json={"error": str(exc)},
+                    )
+                )
+                db.commit()
+        logging.info("node reconcile cycle done, reconciled=%s failed=%s", reconciled, failed)
 
 
 def usage_sync_job() -> None:
@@ -135,6 +163,7 @@ def main() -> None:
 
     # Every 1-5 minutes
     scheduler.add_job(health_and_resume_job, "interval", minutes=2, id="health_resume")
+    scheduler.add_job(reconcile_nodes_job, "interval", minutes=10, id="node_reconcile")
     scheduler.add_job(usage_sync_job, "interval", minutes=5, id="usage_sync")
     scheduler.add_job(cleanup_job, "interval", minutes=5, id="cleanup")
 
