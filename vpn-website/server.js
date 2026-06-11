@@ -162,6 +162,10 @@ function toAmountValue(amountRub) {
   return normalized.toFixed(2);
 }
 
+function isValidEmail(value) {
+  return typeof value === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
 function amountValueToKopecks(amountValue) {
   const normalized = Number(amountValue);
   if (!Number.isFinite(normalized) || normalized <= 0) {
@@ -205,6 +209,24 @@ function sanitizeMetadata(metadata) {
       cleaned[key] = value;
     }
   }
+  return cleaned;
+}
+
+function sanitizeYookassaPayload(payment) {
+  if (!payment || typeof payment !== 'object' || Array.isArray(payment)) {
+    return {};
+  }
+
+  const cleaned = { ...payment };
+  delete cleaned.receipt;
+  delete cleaned.customer;
+
+  if (cleaned.payment_method && typeof cleaned.payment_method === 'object') {
+    const paymentMethod = { ...cleaned.payment_method };
+    delete paymentMethod.card;
+    cleaned.payment_method = paymentMethod;
+  }
+
   return cleaned;
 }
 
@@ -312,7 +334,7 @@ async function savePaymentRecord({
       description || payment.description || null,
       idempotenceKey || null,
       payment.confirmation?.confirmation_url || null,
-      JSON.stringify(payment),
+      JSON.stringify(sanitizeYookassaPayload(payment)),
       JSON.stringify(metadata)
     ]
   );
@@ -2001,6 +2023,7 @@ app.post('/api/create-payment', requireAuth, async (req, res) => {
 
   const {
     amount_rub = 100,
+    receipt_email = '',
     description,
     plan_name = null
   } = req.body || {};
@@ -2010,10 +2033,15 @@ app.post('/api/create-payment', requireAuth, async (req, res) => {
   if (!amountValue) {
     return res.status(400).json({ error: 'amount_rub must be a positive number' });
   }
+  const receiptEmail = String(receipt_email || '').trim();
+  if (!isValidEmail(receiptEmail)) {
+    return res.status(400).json({ error: 'Введите email для чека' });
+  }
 
   const orderId = crypto.randomUUID();
   const incomingIdempotenceKey = req.header('Idempotence-Key');
   const idempotenceKey = incomingIdempotenceKey || makeIdempotenceKey();
+  const paymentDescription = description || `VPN payment ${orderId}`;
 
   try {
     const existingByKey = await getPaymentByIdempotenceKey(idempotenceKey);
@@ -2051,7 +2079,22 @@ app.post('/api/create-payment', requireAuth, async (req, res) => {
           type: 'redirect',
           return_url: `${BASE_URL}/payment-return?order_id=${encodeURIComponent(orderId)}`
         },
-        description: description || `VPN payment ${orderId}`,
+        description: paymentDescription,
+        receipt: {
+          customer: {
+            email: receiptEmail
+          },
+          items: [
+            {
+              description: 'Предоставление доступа к сетевой инфраструктуре',
+              quantity: '1.00',
+              amount: { value: amountValue, currency: 'RUB' },
+              vat_code: 1,
+              payment_subject: 'service',
+              payment_mode: 'full_payment'
+            }
+          ]
+        },
         metadata: {
           user_id: userId,
           order_id: orderId,
@@ -2071,7 +2114,7 @@ app.post('/api/create-payment', requireAuth, async (req, res) => {
       userId,
       orderId,
       planName: plan_name ? String(plan_name) : null,
-      description: description || null,
+      description: paymentDescription,
       idempotenceKey
     });
 

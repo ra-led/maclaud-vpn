@@ -540,6 +540,7 @@ export default function VPNLandingPage() {
   const [paymentError, setPaymentError] = useState('');
   const [paymentReturn, setPaymentReturn] = useState(null);
   const [topUpAmount, setTopUpAmount] = useState('150');
+  const [receiptEmail, setReceiptEmail] = useState('');
   const [deviceName, setDeviceName] = useState('');
   const [isCreatingDevice, setIsCreatingDevice] = useState(false);
   const [loadingConfigDeviceId, setLoadingConfigDeviceId] = useState(null);
@@ -554,6 +555,10 @@ export default function VPNLandingPage() {
   const normalizedTopUpAmount = Number(String(topUpAmount).replace(',', '.'));
   const isTopUpAmountValid = Number.isFinite(normalizedTopUpAmount) && normalizedTopUpAmount >= 30;
   const topUpAmountHint = topUpAmount.trim() && !isTopUpAmountValid ? 'Минимум 30 рублей' : '';
+  const normalizedReceiptEmail = receiptEmail.trim();
+  const isReceiptEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedReceiptEmail);
+  const receiptEmailHint = normalizedReceiptEmail && !isReceiptEmailValid ? 'Введите email для чека' : '';
+  const isPaymentFormValid = isTopUpAmountValid && isReceiptEmailValid;
 
   if (window.location.pathname === '/admin') {
     return <AdminDashboard />;
@@ -950,7 +955,10 @@ export default function VPNLandingPage() {
   }
 
   async function createPayment() {
-    if (!isTopUpAmountValid) {
+    if (!isPaymentFormValid) {
+      if (!isReceiptEmailValid) {
+        setPaymentError('Введите email для чека');
+      }
       return;
     }
 
@@ -967,6 +975,7 @@ export default function VPNLandingPage() {
         },
         body: JSON.stringify({
           amount_rub: normalizedTopUpAmount,
+          receipt_email: normalizedReceiptEmail,
           plan_name: 'Пополнение баланса VPN-GO',
           description: `Пополнение баланса VPN-GO на ${normalizedTopUpAmount} ₽`
         })
@@ -1400,6 +1409,29 @@ export default function VPNLandingPage() {
                   <div className="mt-2 text-xs font-semibold text-red-600">{topUpAmountHint}</div>
                 )}
 
+                <label className="mt-4 block text-sm font-semibold text-slate-700">
+                  Email для чека
+                </label>
+                <input
+                  type="email"
+                  value={receiptEmail}
+                  onChange={(event) => {
+                    setReceiptEmail(event.target.value);
+                    setPaymentError('');
+                  }}
+                  inputMode="email"
+                  autoComplete="email"
+                  autoCorrect="off"
+                  placeholder="mail@example.com"
+                  className="mt-2 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 py-3 text-lg font-bold outline-none focus:border-slate-950"
+                />
+                <div className="mt-2 text-xs leading-5 text-slate-500">
+                  Нужен только для фискального чека YooKassa.
+                </div>
+                {receiptEmailHint && (
+                  <div className="mt-2 text-xs font-semibold text-red-600">{receiptEmailHint}</div>
+                )}
+
                 {paymentError && (
                   <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                     {paymentError}
@@ -1408,9 +1440,9 @@ export default function VPNLandingPage() {
 
                 <button
                   onClick={createPayment}
-                  disabled={isPaying || !isTopUpAmountValid}
+                  disabled={isPaying || !isPaymentFormValid}
                   className={`mt-5 w-full rounded-lg bg-lime-400 px-5 py-4 text-base font-black text-slate-950 transition hover:bg-lime-300 ${
-                    isPaying || !isTopUpAmountValid ? 'cursor-not-allowed opacity-50 hover:bg-lime-400' : ''
+                    isPaying || !isPaymentFormValid ? 'cursor-not-allowed opacity-50 hover:bg-lime-400' : ''
                   }`}
                 >
                   {isPaying ? 'Переходим к оплате...' : 'Оплатить через ЮKassa'}
