@@ -16,7 +16,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("users", sa.Column("test", sa.Boolean(), nullable=False, server_default=sa.text("false")))
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS test BOOLEAN NOT NULL DEFAULT false")
 
 
 def downgrade() -> None:
