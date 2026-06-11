@@ -1,6 +1,6 @@
 """device unique keys only for non-deleted devices
 
-Revision ID: 0003_device_unique_only_non_deleted
+Revision ID: 0003_device_live_unique
 Revises: 0002_idempotent_daily_billing
 Create Date: 2026-06-11 00:00:00
 """
@@ -9,7 +9,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0003_device_unique_only_non_deleted"
+revision = "0003_device_live_unique"
 down_revision = "0002_idempotent_daily_billing"
 branch_labels = None
 depends_on = None
