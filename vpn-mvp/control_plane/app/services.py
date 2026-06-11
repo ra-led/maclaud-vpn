@@ -121,11 +121,12 @@ def create_device_for_user(db: Session, user: User, name: str) -> dict:
             if last_error:
                 raise HTTPException(status_code=502, detail='Failed to create device on available edge nodes') from last_error
             raise
+        node_id = node.id
 
         pending_secret = new_pending_secret()
         device = Device(
             user_id=user_id,
-            node_id=node.id,
+            node_id=node_id,
             name=name,
             vpn_ip=f'awg-pending-{pending_secret}',
             public_key=f'awg-pending-{pending_secret}',
@@ -134,13 +135,14 @@ def create_device_for_user(db: Session, user: User, name: str) -> dict:
         )
         db.add(device)
         db.flush()
+        device_id = device.id
 
         try:
             edge_result = push_peer_command(
                 node,
                 method='POST',
                 path='/peers',
-                payload={'device_id': device.id, 'name': device.name},
+                payload={'device_id': device_id, 'name': device.name},
             )
 
             conf_text = normalize_client_conf(edge_result['conf_text'])
@@ -157,12 +159,14 @@ def create_device_for_user(db: Session, user: User, name: str) -> dict:
                 'qr_png_base64': edge_result['qr_png_base64'],
             }
         except Exception as error:
-            failed_node_ids.add(node.id)
+            failed_node_ids.add(node_id)
             last_error = error
-            device_id = device.id
             db.rollback()
+            cleanup_node = db.get(Node, node_id)
+            if not cleanup_node:
+                continue
             try:
-                push_peer_command(node, method='DELETE', path=f'/peers/{device_id}')
+                push_peer_command(cleanup_node, method='DELETE', path=f'/peers/{device_id}')
             except Exception:
                 pass
 

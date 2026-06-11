@@ -1,7 +1,7 @@
 import enum
 from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Date, DateTime, Enum, ForeignKey, Integer, JSON, String, UniqueConstraint, func
+from sqlalchemy import BigInteger, Date, DateTime, Enum, ForeignKey, Index, Integer, JSON, String, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -86,13 +86,17 @@ class Node(Base):
 
 class Device(Base):
     __tablename__ = 'devices'
+    __table_args__ = (
+        Index('uq_devices_vpn_ip_not_deleted', 'vpn_ip', unique=True, postgresql_where=text("status <> 'deleted'")),
+        Index('uq_devices_public_key_not_deleted', 'public_key', unique=True, postgresql_where=text("status <> 'deleted'")),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), index=True)
     node_id: Mapped[int] = mapped_column(ForeignKey('nodes.id'), index=True)
     name: Mapped[str] = mapped_column(String(255))
-    vpn_ip: Mapped[str] = mapped_column(String(64), unique=True)
-    public_key: Mapped[str] = mapped_column(String(255), unique=True)
+    vpn_ip: Mapped[str] = mapped_column(String(64))
+    public_key: Mapped[str] = mapped_column(String(255))
     private_key_encrypted: Mapped[str] = mapped_column(String(1024))
     status: Mapped[DeviceStatus] = mapped_column(Enum(DeviceStatus), default=DeviceStatus.active)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
