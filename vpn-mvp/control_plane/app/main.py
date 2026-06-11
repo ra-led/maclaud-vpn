@@ -644,6 +644,7 @@ def admin_overview(
             "total": len(users),
             "active": len(active_users),
             "banned": len(users) - len(active_users),
+            "test": sum(1 for user in users if user.test),
             "with_positive_balance": sum(1 for user in users if user.balance_kopecks > 0),
         },
         "balances": {

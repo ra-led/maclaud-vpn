@@ -872,6 +872,7 @@ async function getWebsiteAdminOverview() {
       `
         SELECT
           COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE test)::int AS test,
           COUNT(*) FILTER (WHERE last_login_at IS NOT NULL)::int AS logged_in,
           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours')::int AS created_24h,
           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')::int AS created_7d

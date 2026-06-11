@@ -49,9 +49,13 @@ CREATE INDEX IF NOT EXISTS ix_yookassa_webhook_events_payment_id
 CREATE TABLE IF NOT EXISTS passkey_accounts (
   user_id TEXT PRIMARY KEY,
   display_name TEXT NOT NULL DEFAULT 'Пользователь VPN-GO',
+  test BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   last_login_at TIMESTAMPTZ NULL
 );
+
+ALTER TABLE passkey_accounts
+  ADD COLUMN IF NOT EXISTS test BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE TABLE IF NOT EXISTS passkey_credentials (
   credential_id TEXT PRIMARY KEY,
