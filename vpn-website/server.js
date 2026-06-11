@@ -22,6 +22,8 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 const TRUST_PROXY = process.env.TRUST_PROXY || '1';
 const CONTROL_PLANE_API_URL = process.env.CONTROL_PLANE_API_URL || 'http://host.docker.internal:8000';
 const CONTROL_PLANE_INTERNAL_TOKEN = process.env.CONTROL_PLANE_INTERNAL_TOKEN;
+const CONTROL_PLANE_ADMIN_TOKEN = process.env.CONTROL_PLANE_ADMIN_TOKEN || process.env.ADMIN_API_TOKEN;
+const ADMIN_DASHBOARD_TOKEN = process.env.ADMIN_DASHBOARD_TOKEN || process.env.ADMIN_API_TOKEN;
 const CONTROL_PLANE_SYNC_ENABLED = process.env.CONTROL_PLANE_SYNC_ENABLED !== 'false';
 const PUBLIC_BASE_URL = new URL(BASE_URL);
 const WEBAUTHN_RP_ID = process.env.WEBAUTHN_RP_ID || PUBLIC_BASE_URL.hostname;
@@ -417,6 +419,39 @@ async function controlPlaneRequest({ method = 'GET', path: apiPath, body }) {
   return payload;
 }
 
+async function controlPlaneAdminRequest({ method = 'GET', path: apiPath, body }) {
+  if (!CONTROL_PLANE_ADMIN_TOKEN) {
+    const error = new Error('Control-plane admin token is not configured');
+    error.status = 500;
+    throw error;
+  }
+
+  const response = await fetch(`${CONTROL_PLANE_API_URL}${apiPath}`, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Admin-Token': CONTROL_PLANE_ADMIN_TOKEN
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch (_error) {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    const error = new Error(payload?.detail || payload?.error || `Control-plane admin request failed (${response.status})`);
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload;
+}
+
 async function getWebsitePaymentsForUser(userId) {
   await backfillReferralBonusPaymentsForUser(userId);
 
@@ -780,6 +815,141 @@ function requireAuth(req, res, next) {
   }
   req.auth = session;
   return next();
+}
+
+function requireAdminDashboard(req, res, next) {
+  if (!ADMIN_DASHBOARD_TOKEN) {
+    return res.status(500).json({ error: 'ADMIN_DASHBOARD_TOKEN is not configured' });
+  }
+
+  const headerToken = typeof req.headers['x-admin-token'] === 'string' ? req.headers['x-admin-token'] : '';
+  const authHeader = typeof req.headers.authorization === 'string' ? req.headers.authorization : '';
+  const bearerToken = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : '';
+  const token = headerToken || bearerToken;
+  if (token !== ADMIN_DASHBOARD_TOKEN) {
+    return res.status(401).json({ error: 'Invalid admin token' });
+  }
+  return next();
+}
+
+async function recordAuthEvent(req, eventType, metadata = {}) {
+  const visitorId = typeof req.body?.visitor_id === 'string' ? req.body.visitor_id.slice(0, 128) : null;
+  const userId = typeof req.body?.user_id === 'string' || typeof req.body?.user_id === 'number'
+    ? String(req.body.user_id).slice(0, 64)
+    : null;
+  await pool.query(
+    `
+      INSERT INTO admin_auth_events (event_type, user_id, visitor_id, visitor_key, ip_address, user_agent, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `,
+    [
+      eventType,
+      userId,
+      visitorId,
+      requestVisitorKey(req),
+      normalizeIp(getClientIp(req)),
+      String(req.headers['user-agent'] || '').slice(0, 1000),
+      metadata
+    ]
+  );
+}
+
+function dateBucketExpression(columnName) {
+  return `to_char(date_trunc('day', ${columnName}), 'YYYY-MM-DD')`;
+}
+
+async function getWebsiteAdminOverview() {
+  const [
+    accountCounts,
+    authEventCounts,
+    authEventsByDay,
+    referralCounts,
+    yookassaTotals,
+    yookassaByDay,
+    yookassaByStatus
+  ] = await Promise.all([
+    pool.query(
+      `
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE last_login_at IS NOT NULL)::int AS logged_in,
+          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours')::int AS created_24h,
+          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')::int AS created_7d
+        FROM passkey_accounts
+      `
+    ),
+    pool.query(
+      `
+        SELECT event_type, COUNT(*)::int AS count
+        FROM admin_auth_events
+        GROUP BY event_type
+        ORDER BY event_type
+      `
+    ),
+    pool.query(
+      `
+        SELECT ${dateBucketExpression('created_at')} AS date, event_type, COUNT(*)::int AS count
+        FROM admin_auth_events
+        WHERE created_at >= NOW() - INTERVAL '30 days'
+        GROUP BY date, event_type
+        ORDER BY date ASC, event_type ASC
+      `
+    ),
+    pool.query(
+      `
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'awarded')::int AS awarded,
+          COUNT(*) FILTER (WHERE status = 'pending')::int AS pending,
+          COUNT(*) FILTER (WHERE status = 'failed')::int AS failed,
+          COALESCE(SUM(bonus_kopecks) FILTER (WHERE status = 'awarded'), 0)::bigint AS awarded_bonus_kopecks
+        FROM referral_activations
+      `
+    ),
+    pool.query(
+      `
+        SELECT
+          COUNT(*)::int AS total_count,
+          COUNT(*) FILTER (WHERE status = 'succeeded')::int AS succeeded_count,
+          COUNT(*) FILTER (WHERE status = 'pending')::int AS pending_count,
+          COUNT(*) FILTER (WHERE status = 'canceled')::int AS canceled_count,
+          COALESCE(SUM((amount_value * 100)::bigint) FILTER (WHERE status = 'succeeded'), 0)::bigint AS succeeded_kopecks
+        FROM yookassa_payments
+      `
+    ),
+    pool.query(
+      `
+        SELECT ${dateBucketExpression('created_at')} AS date,
+               COUNT(*)::int AS count,
+               COALESCE(SUM((amount_value * 100)::bigint) FILTER (WHERE status = 'succeeded'), 0)::bigint AS succeeded_kopecks
+        FROM yookassa_payments
+        WHERE created_at >= NOW() - INTERVAL '30 days'
+        GROUP BY date
+        ORDER BY date ASC
+      `
+    ),
+    pool.query(
+      `
+        SELECT status, COUNT(*)::int AS count, COALESCE(SUM((amount_value * 100)::bigint), 0)::bigint AS amount_kopecks
+        FROM yookassa_payments
+        GROUP BY status
+        ORDER BY status
+      `
+    )
+  ]);
+
+  return {
+    passkeys: accountCounts.rows[0] || { total: 0, logged_in: 0, created_24h: 0, created_7d: 0 },
+    auth_events: {
+      totals: authEventCounts.rows,
+      by_day: authEventsByDay.rows
+    },
+    referrals: referralCounts.rows[0] || { awarded: 0, pending: 0, failed: 0, awarded_bonus_kopecks: 0 },
+    yookassa: {
+      totals: yookassaTotals.rows[0] || {},
+      by_day: yookassaByDay.rows,
+      by_status: yookassaByStatus.rows
+    }
+  };
 }
 
 const rateLimitBuckets = new Map();
@@ -1294,6 +1464,34 @@ function sendApiError(res, error, fallback = 'Unexpected API error') {
 app.use('/api/passkeys', rateLimit({ windowMs: 60_000, max: 20, keyPrefix: 'passkeys' }));
 app.use('/api/create-payment', rateLimit({ windowMs: 60_000, max: 8, keyPrefix: 'payment-create' }));
 app.use('/api/devices', rateLimit({ windowMs: 60_000, max: 60, keyPrefix: 'devices' }));
+app.use('/api/auth-events', rateLimit({ windowMs: 60_000, max: 30, keyPrefix: 'auth-events' }));
+
+app.post('/api/auth-events/login-click', async (req, res) => {
+  try {
+    await recordAuthEvent(req, 'login_click', {
+      has_referrer: Boolean(req.body?.referrer_id),
+      has_referral_token: Boolean(req.body?.referral_token),
+      path: typeof req.body?.path === 'string' ? req.body.path.slice(0, 300) : ''
+    });
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('auth event failed', { message: error instanceof Error ? error.message : String(error) });
+    return res.status(500).json({ error: 'Failed to record auth event' });
+  }
+});
+
+app.get('/api/admin/overview', requireAdminDashboard, async (_req, res) => {
+  try {
+    const [website, control] = await Promise.all([
+      getWebsiteAdminOverview(),
+      controlPlaneAdminRequest({ path: '/v1/admin/overview' })
+    ]);
+    return res.json({ generated_at: new Date().toISOString(), website, control });
+  } catch (error) {
+    console.error('admin overview failed', { message: error instanceof Error ? error.message : String(error) });
+    return sendApiError(res, error, 'Failed to load admin overview');
+  }
+});
 
 app.post('/api/referral/prepare', async (req, res) => {
   try {
@@ -1346,8 +1544,9 @@ app.post('/api/referral/status', async (req, res) => {
   }
 });
 
-app.post('/api/passkeys/authentication/options', async (_req, res) => {
+app.post('/api/passkeys/authentication/options', async (req, res) => {
   try {
+    await recordAuthEvent(req, 'passkey_authentication_start', {});
     const options = await generateAuthenticationOptions({
       rpID: WEBAUTHN_RP_ID,
       userVerification: 'preferred'
@@ -1455,6 +1654,10 @@ app.post('/api/passkeys/authentication/verify', async (req, res) => {
 
 app.post('/api/passkeys/registration/options', async (req, res) => {
   try {
+    await recordAuthEvent(req, 'passkey_registration_start', {
+      has_referrer: Boolean(req.body?.referrer_user_id),
+      has_referral_token: Boolean(req.body?.referral_token)
+    });
     const requestedReferrerId = parseControlPlaneAccountId(req.body?.referrer_user_id);
     let referralVisitor = null;
     if (requestedReferrerId) {

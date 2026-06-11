@@ -162,3 +162,22 @@ CREATE TABLE IF NOT EXISTS account_visitors (
 
 CREATE INDEX IF NOT EXISTS ix_account_visitors_user_id
   ON account_visitors (user_id);
+
+CREATE TABLE IF NOT EXISTS admin_auth_events (
+  id BIGSERIAL PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  user_id TEXT NULL,
+  visitor_id TEXT NULL,
+  visitor_key TEXT NULL,
+  ip_address TEXT NULL,
+  user_agent TEXT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_admin_auth_events_event_type_created_at
+  ON admin_auth_events (event_type, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS ix_admin_auth_events_user_id_created_at
+  ON admin_auth_events (user_id, created_at DESC)
+  WHERE user_id IS NOT NULL;

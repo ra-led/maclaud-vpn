@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
@@ -7,7 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth import get_node_by_token_for_node, require_admin_token, require_internal_token
 from app.config import get_settings
 from app.db import Base, engine, get_db
-from app.models import AuditLog, Device, DeviceStatus, DeviceUsageDaily, Node, NodeStatus, Payment, User, UserStatus
+from app.models import AuditLog, Device, DeviceStatus, DeviceUsageDaily, Node, NodeStatus, Payment, PaymentStatus, User, UserStatus
 from app.schemas import (
     AdminBanIn,
     BalanceOut,
@@ -500,6 +501,179 @@ def admin_usage_nodes(
             }
         )
     return result
+
+
+@app.get("/v1/admin/overview")
+def admin_overview(
+    _: None = Depends(require_admin_token),
+    db: Session = Depends(get_db),
+) -> dict:
+    users = db.scalars(select(User)).all()
+    nodes = db.scalars(select(Node).order_by(Node.id.asc())).all()
+    devices = db.scalars(select(Device)).all()
+    payments = db.scalars(select(Payment)).all()
+    usage_rows = db.scalars(select(DeviceUsageDaily)).all()
+
+    users_by_id = {user.id: user for user in users}
+    devices_by_id = {device.id: device for device in devices}
+    referral_bonus_by_user: dict[int, int] = {}
+    for payment in payments:
+        if payment.provider == "referral" and payment.status == PaymentStatus.confirmed:
+            referral_bonus_by_user[payment.user_id] = referral_bonus_by_user.get(payment.user_id, 0) + int(payment.amount_kopecks)
+
+    total_balance = sum(int(user.balance_kopecks) for user in users)
+    positive_balance = sum(max(int(user.balance_kopecks), 0) for user in users)
+    bonus_balance = sum(
+        min(max(int(user.balance_kopecks), 0), referral_bonus_by_user.get(user.id, 0))
+        for user in users
+    )
+
+    device_counts_by_node: dict[int, dict] = {
+        node.id: {
+            "node_id": node.id,
+            "node_name": node.name,
+            "status": node.status.value,
+            "active": 0,
+            "suspended": 0,
+            "banned": 0,
+            "deleted": 0,
+            "total": 0,
+        }
+        for node in nodes
+    }
+    for device in devices:
+        bucket = device_counts_by_node.setdefault(
+            device.node_id,
+            {
+                "node_id": device.node_id,
+                "node_name": f"node-{device.node_id}",
+                "status": "unknown",
+                "active": 0,
+                "suspended": 0,
+                "banned": 0,
+                "deleted": 0,
+                "total": 0,
+            },
+        )
+        bucket[device.status.value] = bucket.get(device.status.value, 0) + 1
+        bucket["total"] += 1
+
+    traffic_by_node: dict[int, dict] = {
+        node.id: {
+            "node_id": node.id,
+            "node_name": node.name,
+            "rx_bytes": 0,
+            "tx_bytes": 0,
+            "total_bytes": 0,
+        }
+        for node in nodes
+    }
+    traffic_by_day: dict[str, dict] = {}
+    for row in usage_rows:
+        device = devices_by_id.get(row.device_id)
+        if not device:
+            continue
+        node_bucket = traffic_by_node.setdefault(
+            device.node_id,
+            {"node_id": device.node_id, "node_name": f"node-{device.node_id}", "rx_bytes": 0, "tx_bytes": 0, "total_bytes": 0},
+        )
+        node_bucket["rx_bytes"] += int(row.rx_bytes)
+        node_bucket["tx_bytes"] += int(row.tx_bytes)
+        node_bucket["total_bytes"] += int(row.rx_bytes) + int(row.tx_bytes)
+
+        day_key = row.date.isoformat()
+        day_bucket = traffic_by_day.setdefault(day_key, {"date": day_key, "rx_bytes": 0, "tx_bytes": 0, "total_bytes": 0})
+        day_bucket["rx_bytes"] += int(row.rx_bytes)
+        day_bucket["tx_bytes"] += int(row.tx_bytes)
+        day_bucket["total_bytes"] += int(row.rx_bytes) + int(row.tx_bytes)
+
+    payments_by_day: dict[str, dict] = {}
+    payments_by_provider: dict[str, dict] = {}
+    payments_by_status: dict[str, dict] = {}
+    for payment in payments:
+        day = payment.confirmed_at or payment.created_at
+        day_key = day.date().isoformat() if day else "unknown"
+        day_bucket = payments_by_day.setdefault(day_key, {"date": day_key, "count": 0, "amount_kopecks": 0})
+        day_bucket["count"] += 1
+        if payment.status == PaymentStatus.confirmed:
+            day_bucket["amount_kopecks"] += int(payment.amount_kopecks)
+
+        provider_bucket = payments_by_provider.setdefault(payment.provider, {"provider": payment.provider, "count": 0, "amount_kopecks": 0})
+        provider_bucket["count"] += 1
+        if payment.status == PaymentStatus.confirmed:
+            provider_bucket["amount_kopecks"] += int(payment.amount_kopecks)
+
+        status_bucket = payments_by_status.setdefault(payment.status.value, {"status": payment.status.value, "count": 0, "amount_kopecks": 0})
+        status_bucket["count"] += 1
+        status_bucket["amount_kopecks"] += int(payment.amount_kopecks)
+
+    edge_availability = []
+    with httpx.Client(timeout=3.0) as client:
+        for node in nodes:
+            available = False
+            latency_ms = None
+            error_text = None
+            checked_at = datetime.now(UTC)
+            try:
+                started_at = datetime.now(UTC)
+                response = client.get(f"{node.api_url.rstrip('/')}/health")
+                latency_ms = round((datetime.now(UTC) - started_at).total_seconds() * 1000)
+                available = response.status_code < 300
+                if not available:
+                    error_text = f"HTTP {response.status_code}"
+            except Exception as error:  # noqa: BLE001
+                error_text = str(error)
+            edge_availability.append(
+                {
+                    "node_id": node.id,
+                    "node_name": node.name,
+                    "api_url": node.api_url,
+                    "status": node.status.value,
+                    "available": available,
+                    "latency_ms": latency_ms,
+                    "error": error_text,
+                    "last_heartbeat_at": node.last_heartbeat_at,
+                    "checked_at": checked_at,
+                }
+            )
+
+    active_users = [user for user in users if user.status == UserStatus.active]
+    return {
+        "generated_at": datetime.now(UTC),
+        "accounts": {
+            "total": len(users),
+            "active": len(active_users),
+            "banned": len(users) - len(active_users),
+            "with_positive_balance": sum(1 for user in users if user.balance_kopecks > 0),
+        },
+        "balances": {
+            "total_kopecks": total_balance,
+            "positive_total_kopecks": positive_balance,
+            "bonus_balance_kopecks": bonus_balance,
+            "average_kopecks": round(total_balance / len(users)) if users else 0,
+            "average_positive_kopecks": round(positive_balance / len(users)) if users else 0,
+        },
+        "devices": {
+            "total": len(devices),
+            "active": sum(1 for device in devices if device.status == DeviceStatus.active),
+            "non_deleted": sum(1 for device in devices if device.status != DeviceStatus.deleted),
+            "by_node": list(device_counts_by_node.values()),
+        },
+        "traffic": {
+            "by_node": list(traffic_by_node.values()),
+            "by_day": sorted(traffic_by_day.values(), key=lambda item: item["date"]),
+        },
+        "nodes": edge_availability,
+        "payments": {
+            "total_count": len(payments),
+            "confirmed_count": sum(1 for payment in payments if payment.status == PaymentStatus.confirmed),
+            "confirmed_amount_kopecks": sum(int(payment.amount_kopecks) for payment in payments if payment.status == PaymentStatus.confirmed),
+            "referral_bonus_kopecks": sum(referral_bonus_by_user.values()),
+            "by_day": sorted(payments_by_day.values(), key=lambda item: item["date"]),
+            "by_provider": list(payments_by_provider.values()),
+            "by_status": list(payments_by_status.values()),
+        },
+    }
 
 
 def get_node_by_token(db: Session, token: str | None) -> Node:

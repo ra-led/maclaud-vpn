@@ -268,6 +268,259 @@ function renderAgreementLine(line, index) {
   );
 }
 
+const ADMIN_TOKEN_KEY = 'vpngo_admin_token';
+
+function numberValue(value) {
+  const normalized = Number(value || 0);
+  return Number.isFinite(normalized) ? normalized : 0;
+}
+
+function formatCompactNumber(value) {
+  return new Intl.NumberFormat('ru-RU').format(numberValue(value));
+}
+
+function formatRubPrecise(value) {
+  return `${new Intl.NumberFormat('ru-RU').format(Math.round(numberValue(value) / 100))} ₽`;
+}
+
+function formatBytes(value) {
+  const bytes = numberValue(value);
+  if (bytes >= 1024 ** 4) return `${(bytes / 1024 ** 4).toFixed(2)} ТБ`;
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} ГБ`;
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} МБ`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
+  return `${Math.round(bytes)} Б`;
+}
+
+function MetricCard({ label, value, sub }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="text-xs font-black uppercase text-slate-500">{label}</div>
+      <div className="mt-3 text-3xl font-black tracking-tight text-slate-950">{value}</div>
+      {sub && <div className="mt-2 text-sm text-slate-500">{sub}</div>}
+    </div>
+  );
+}
+
+function BarChart({ rows, labelKey = 'date', valueKey = 'count', valueFormatter = formatCompactNumber }) {
+  const maxValue = Math.max(1, ...rows.map((row) => numberValue(row[valueKey])));
+  return (
+    <div className="space-y-2">
+      {rows.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-500">Нет данных</div>
+      ) : rows.map((row) => {
+        const value = numberValue(row[valueKey]);
+        return (
+          <div key={`${row[labelKey]}-${valueKey}`} className="grid grid-cols-[5.5rem_1fr_5rem] items-center gap-3 text-xs">
+            <div className="truncate font-bold text-slate-600">{row[labelKey]}</div>
+            <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full rounded-full bg-lime-400"
+                style={{ width: `${Math.max(2, (value / maxValue) * 100)}%` }}
+              />
+            </div>
+            <div className="text-right font-bold text-slate-700">{valueFormatter(value)}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AdminDashboard() {
+  const [token, setToken] = useState(() => window.sessionStorage.getItem(ADMIN_TOKEN_KEY) || '');
+  const [draftToken, setDraftToken] = useState(() => window.sessionStorage.getItem(ADMIN_TOKEN_KEY) || '');
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  async function loadAdmin(nextToken = token) {
+    if (!nextToken) {
+      setError('Введите admin token');
+      return;
+    }
+    setIsLoading(true);
+    setError('');
+    try {
+      const response = await fetch('/api/admin/overview', {
+        headers: { 'X-Admin-Token': nextToken }
+      });
+      const payload = await readJson(response);
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Не удалось загрузить админку');
+      }
+      window.sessionStorage.setItem(ADMIN_TOKEN_KEY, nextToken);
+      setToken(nextToken);
+      setData(payload);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Не удалось загрузить админку');
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (token) {
+      loadAdmin(token);
+    }
+  }, []);
+
+  const control = data?.control;
+  const website = data?.website;
+  const accountTotals = control?.accounts || {};
+  const balances = control?.balances || {};
+  const devices = control?.devices || {};
+  const payments = control?.payments || {};
+  const referrals = website?.referrals || {};
+  const passkeys = website?.passkeys || {};
+  const authTotals = website?.auth_events?.totals || [];
+  const authByDay = website?.auth_events?.by_day || [];
+  const loginClicks = authTotals.find((row) => row.event_type === 'login_click')?.count || 0;
+  const recentPaymentRows = (payments.by_day || []).slice(-14);
+  const recentYookassaRows = (website?.yookassa?.by_day || []).slice(-14);
+
+  return (
+    <div className="min-h-screen bg-[#f7f8fb] text-slate-950">
+      <header className="border-b border-slate-200 bg-white">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-5 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="text-2xl font-black">VPN-GO Admin</div>
+            <div className="text-sm text-slate-500">
+              {data?.generated_at ? `Обновлено ${new Date(data.generated_at).toLocaleString('ru-RU')}` : 'Мониторинг сервиса'}
+            </div>
+          </div>
+          <form
+            className="flex gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              loadAdmin(draftToken);
+            }}
+          >
+            <input
+              value={draftToken}
+              onChange={(event) => setDraftToken(event.target.value)}
+              placeholder="Admin token"
+              className="h-11 min-w-0 rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-slate-950 md:w-80"
+            />
+            <button className="h-11 rounded-lg bg-slate-950 px-4 text-sm font-black text-white" disabled={isLoading}>
+              {isLoading ? '...' : 'Обновить'}
+            </button>
+          </form>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+        {error && <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{error}</div>}
+
+        {data && (
+          <>
+            <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard label="Активировано аккаунтов" value={formatCompactNumber(passkeys.total || accountTotals.total)} sub={`За 7 дней: ${formatCompactNumber(passkeys.created_7d)}`} />
+              <MetricCard label="Нажатий на вход" value={formatCompactNumber(loginClicks)} sub="С момента включения трекинга" />
+              <MetricCard label="По рефералке" value={formatCompactNumber(referrals.awarded)} sub={`Бонусы: ${formatRubPrecise(referrals.awarded_bonus_kopecks)}`} />
+              <MetricCard label="Устройств" value={formatCompactNumber(devices.non_deleted)} sub={`Активных: ${formatCompactNumber(devices.active)}`} />
+              <MetricCard label="Общий баланс" value={formatRubPrecise(balances.total_kopecks)} sub={`${formatCompactNumber(accountTotals.with_positive_balance)} аккаунтов с балансом`} />
+              <MetricCard label="Бонусный баланс" value={formatRubPrecise(balances.bonus_balance_kopecks)} sub="Оценка остатка referral-бонусов" />
+              <MetricCard label="Средний баланс" value={formatRubPrecise(balances.average_kopecks)} sub={`Положительный avg: ${formatRubPrecise(balances.average_positive_kopecks)}`} />
+              <MetricCard label="Оплаты" value={formatRubPrecise(payments.confirmed_amount_kopecks)} sub={`${formatCompactNumber(payments.confirmed_count)} подтвержденных`} />
+            </section>
+
+            <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+              <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-xl font-black">Edge-ноды</h2>
+                  <div className="text-sm text-slate-500">Доступность с main-ноды</div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[760px] text-left text-sm">
+                    <thead className="text-xs uppercase text-slate-500">
+                      <tr className="border-b border-slate-200">
+                        <th className="py-3">Нода</th>
+                        <th>Доступ</th>
+                        <th>Heartbeat</th>
+                        <th>Устройства</th>
+                        <th>Трафик</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(control.nodes || []).map((node) => {
+                        const deviceRow = (devices.by_node || []).find((row) => row.node_id === node.node_id) || {};
+                        const trafficRow = (control.traffic?.by_node || []).find((row) => row.node_id === node.node_id) || {};
+                        return (
+                          <tr key={node.node_id} className="border-b border-slate-100 last:border-b-0">
+                            <td className="py-3">
+                              <div className="font-black">{node.node_name}</div>
+                              <div className="text-xs text-slate-500">{node.api_url}</div>
+                            </td>
+                            <td>
+                              <span className={`rounded-full px-2 py-1 text-xs font-black ${node.available ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                                {node.available ? `OK ${node.latency_ms || 0} ms` : 'down'}
+                              </span>
+                            </td>
+                            <td className="text-slate-600">{node.last_heartbeat_at ? new Date(node.last_heartbeat_at).toLocaleString('ru-RU') : '-'}</td>
+                            <td className="font-bold">{formatCompactNumber(deviceRow.active)} active / {formatCompactNumber(deviceRow.total)} total</td>
+                            <td className="font-bold">{formatBytes(trafficRow.total_bytes)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                <h2 className="mb-4 text-xl font-black">Устройства по нодам</h2>
+                <BarChart rows={devices.by_node || []} labelKey="node_name" valueKey="active" />
+              </div>
+            </section>
+
+            <section className="grid gap-6 xl:grid-cols-3">
+              <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                <h2 className="mb-4 text-xl font-black">Оплаты control-plane</h2>
+                <BarChart rows={recentPaymentRows} valueKey="amount_kopecks" valueFormatter={formatRubPrecise} />
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                <h2 className="mb-4 text-xl font-black">YooKassa</h2>
+                <BarChart rows={recentYookassaRows} valueKey="succeeded_kopecks" valueFormatter={formatRubPrecise} />
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                <h2 className="mb-4 text-xl font-black">Попытки входа</h2>
+                <BarChart rows={authByDay.filter((row) => row.event_type === 'login_click').slice(-14)} valueKey="count" />
+              </div>
+            </section>
+
+            <section className="grid gap-6 xl:grid-cols-2">
+              <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                <h2 className="mb-4 text-xl font-black">Платежи по статусам</h2>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {(website?.yookassa?.by_status || []).map((row) => (
+                    <div key={row.status} className="rounded-lg border border-slate-200 p-4">
+                      <div className="text-sm font-black">{row.status}</div>
+                      <div className="mt-2 text-2xl font-black">{formatCompactNumber(row.count)}</div>
+                      <div className="text-sm text-slate-500">{formatRubPrecise(row.amount_kopecks)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                <h2 className="mb-4 text-xl font-black">Auth события</h2>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {authTotals.map((row) => (
+                    <div key={row.event_type} className="rounded-lg border border-slate-200 p-4">
+                      <div className="text-sm font-black">{row.event_type}</div>
+                      <div className="mt-2 text-2xl font-black">{formatCompactNumber(row.count)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+          </>
+        )}
+      </main>
+    </div>
+  );
+}
+
 export default function VPNLandingPage() {
   const [profile, setProfile] = useState(() => getStoredProfile());
   const [customerId, setCustomerId] = useState(() => getStoredCustomerId());
@@ -301,6 +554,10 @@ export default function VPNLandingPage() {
   const normalizedTopUpAmount = Number(String(topUpAmount).replace(',', '.'));
   const isTopUpAmountValid = Number.isFinite(normalizedTopUpAmount) && normalizedTopUpAmount >= 30;
   const topUpAmountHint = topUpAmount.trim() && !isTopUpAmountValid ? 'Минимум 30 рублей' : '';
+
+  if (window.location.pathname === '/admin') {
+    return <AdminDashboard />;
+  }
 
   if (window.location.pathname === '/agreement') {
     return (
@@ -571,6 +828,18 @@ export default function VPNLandingPage() {
 
   function openLoginConsent() {
     setAuthError('');
+    getVisitorId()
+      .then((visitorId) => fetch('/api/auth-events/login-click', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          visitor_id: visitorId,
+          referrer_id: referrerId || undefined,
+          referral_token: referralToken || undefined,
+          path: window.location.pathname + window.location.search
+        })
+      }))
+      .catch(() => undefined);
     setLoginConsentVisible(true);
   }
 
