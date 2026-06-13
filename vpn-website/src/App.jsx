@@ -738,15 +738,17 @@ export default function VPNLandingPage() {
   const receiptEmailHint = normalizedReceiptEmail && !isReceiptEmailValid ? 'Введите email для чека' : '';
   const isPaymentFormValid = isTopUpAmountValid && isReceiptEmailValid;
 
-  if (window.location.pathname === '/admin') {
+  const currentPath = window.location.pathname.replace(/\/$/, '') || '/';
+
+  if (currentPath === '/admin') {
     return <AdminDashboard />;
   }
 
-  if (window.location.pathname === '/instructions') {
+  if (currentPath === '/instructions') {
     return <InstructionsPage />;
   }
 
-  if (window.location.pathname === '/agreement') {
+  if (currentPath === '/agreement') {
     return (
       <div className="min-h-screen bg-[#f7f8fb] text-slate-950">
         <header className="border-b border-slate-200 bg-white">
@@ -762,7 +764,7 @@ export default function VPNLandingPage() {
             </a>
             <div className="flex items-center gap-2">
               <a
-                href="/instructions"
+                href="/instructions/"
                 className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700 transition hover:border-slate-500 hover:bg-slate-50"
               >
                 Инструкции
@@ -1531,7 +1533,7 @@ export default function VPNLandingPage() {
             </a>
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
               <a
-                href="/instructions"
+                href="/instructions/"
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 sm:px-4"
               >
                 Инструкции
@@ -1827,7 +1829,7 @@ export default function VPNLandingPage() {
                                     Или отсканируйте этот QR-код, если в AmneziaWG на устройстве есть опция "Создать из QR-кода"
                                   </div>
                                   <a
-                                    href="/instructions"
+                                    href="/instructions/"
                                     className="mt-3 inline-flex text-sm font-black text-emerald-800 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-950"
                                   >
                                     Подробная инструкция со скриншотами
@@ -1883,7 +1885,7 @@ export default function VPNLandingPage() {
           </a>
           <div className="flex items-center gap-2">
             <a
-              href="/instructions"
+              href="/instructions/"
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 transition hover:border-slate-400 hover:bg-white sm:px-4"
             >
               Инструкции
