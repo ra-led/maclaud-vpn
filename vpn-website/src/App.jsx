@@ -27,8 +27,8 @@ const instructionSections = [
     downloadHref: appDownloadLinks[0].href,
     steps: [
       { text: 'Скачайте AmneziaWG по ссылке и установите.', download: true },
-      { text: 'Откройте установленное AmneziaWG.' },
       { text: 'В личном кабинете скачайте файл .conf у нужного устройства.' },
+      { text: 'Откройте установленное AmneziaWG.' },
       { text: 'В AmneziaWG выберите импорт или создание туннеля из файла.' },
       { text: 'Выберите скачанный .conf файл и включите туннель.' }
     ]
@@ -40,11 +40,11 @@ const instructionSections = [
     downloadHref: appDownloadLinks[1].href,
     steps: [
       { text: 'Скачайте AmneziaWG по ссылке и установите.', download: true },
+      { text: 'В личном кабинете скачайте файл .conf у нужного устройства.' },
       {
         text: 'Откройте установленное AmneziaWG.',
         screenshot: { src: '/instructions/create-tunnel/ios/2.jpg', label: 'Откройте AmneziaWG' }
       },
-      { text: 'В личном кабинете скачайте файл .conf у нужного устройства.' },
       {
         text: 'Нажмите +, чтобы создать новый туннель.',
         screenshot: { src: '/instructions/create-tunnel/ios/3.jpg', label: 'Создание туннеля' }
@@ -54,8 +54,7 @@ const instructionSections = [
         screenshot: { src: '/instructions/create-tunnel/ios/4a.jpg', label: 'Импорт из файла' }
       },
       {
-        text: 'Выберите скачанный .conf файл.',
-        screenshot: { src: '/instructions/create-tunnel/ios/4b.jpg', label: 'Выбор .conf' }
+        text: 'Выберите скачанный .conf файл.'
       },
       {
         text: 'Подтвердите импорт и включите туннель.',
@@ -70,8 +69,8 @@ const instructionSections = [
     downloadHref: appDownloadLinks[2].href,
     steps: [
       { text: 'Скачайте AmneziaWG по ссылке и установите.', download: true },
-      { text: 'Откройте установленное AmneziaWG.' },
       { text: 'В личном кабинете скачайте файл .conf у нужного устройства.' },
+      { text: 'Откройте установленное AmneziaWG.' },
       { text: 'В AmneziaWG выберите импорт или создание туннеля из файла.' },
       { text: 'Выберите скачанный .conf файл и включите туннель.' }
     ]
@@ -83,6 +82,7 @@ const instructionSections = [
     downloadHref: appDownloadLinks[3].href,
     steps: [
       { text: 'Скачайте AmneziaWG по ссылке и установите.', download: true },
+      { text: 'В личном кабинете скачайте файл .conf у нужного устройства.' },
       {
         text: 'Запустите AmneziaWG.',
         screenshot: { src: '/instructions/create-tunnel/macos/2.jpg', label: 'Запуск AmneziaWG' }
@@ -91,7 +91,6 @@ const instructionSections = [
         text: 'Нажмите на значок AmneziaWG в правом верхнем углу.',
         screenshot: { src: '/instructions/create-tunnel/macos/3.jpg', label: 'Значок AmneziaWG' }
       },
-      { text: 'В личном кабинете скачайте файл .conf у нужного устройства.' },
       {
         text: 'Выберите "Импорт туннелей из файла".',
         screenshot: { src: '/instructions/create-tunnel/macos/4.jpg', label: 'Импорт из файла' }
