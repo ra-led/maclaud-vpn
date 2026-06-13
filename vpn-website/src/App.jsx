@@ -26,12 +26,12 @@ const instructionSections = [
     downloadLabel: 'Скачать AmneziaWG для Android',
     downloadHref: appDownloadLinks[0].href,
     steps: [
-      'Скачайте AmneziaWG по ссылке выше.',
-      'В личном кабинете скачайте файл .conf у нужного устройства.',
-      'Откройте AmneziaWG и выберите импорт или создание туннеля из файла.',
-      'Выберите скачанный .conf файл и включите туннель.'
-    ],
-    screenshots: []
+      { text: 'Скачайте AmneziaWG по ссылке и установите.', download: true },
+      { text: 'Откройте установленное AmneziaWG.' },
+      { text: 'В личном кабинете скачайте файл .conf у нужного устройства.' },
+      { text: 'В AmneziaWG выберите импорт или создание туннеля из файла.' },
+      { text: 'Выберите скачанный .conf файл и включите туннель.' }
+    ]
   },
   {
     os: 'iOS',
@@ -39,17 +39,28 @@ const instructionSections = [
     downloadLabel: 'Скачать AmneziaWG для iOS',
     downloadHref: appDownloadLinks[1].href,
     steps: [
-      'Скачайте AmneziaWG по ссылке выше.',
-      'В личном кабинете скачайте файл .conf у нужного устройства.',
-      'Откройте AmneziaWG, нажмите создание туннеля и выберите импорт из файла.',
-      'Выберите скачанный .conf файл, подтвердите импорт и включите туннель.'
-    ],
-    screenshots: [
-      { src: '/instructions/create-tunnel/ios/2.jpg', label: 'Создание туннеля' },
-      { src: '/instructions/create-tunnel/ios/3.PNG', label: 'Выбор импорта' },
-      { src: '/instructions/create-tunnel/ios/4a.PNG', label: 'Импорт из файла' },
-      { src: '/instructions/create-tunnel/ios/4b.PNG', label: 'Выбор .conf' },
-      { src: '/instructions/create-tunnel/ios/5.PNG', label: 'Готовый туннель' }
+      { text: 'Скачайте AmneziaWG по ссылке и установите.', download: true },
+      {
+        text: 'Откройте установленное AmneziaWG.',
+        screenshot: { src: '/instructions/create-tunnel/ios/2.jpg', label: 'Откройте AmneziaWG' }
+      },
+      { text: 'В личном кабинете скачайте файл .conf у нужного устройства.' },
+      {
+        text: 'Нажмите +, чтобы создать новый туннель.',
+        screenshot: { src: '/instructions/create-tunnel/ios/3.PNG', label: 'Создание туннеля' }
+      },
+      {
+        text: 'Выберите импорт из файла.',
+        screenshot: { src: '/instructions/create-tunnel/ios/4a.PNG', label: 'Импорт из файла' }
+      },
+      {
+        text: 'Выберите скачанный .conf файл.',
+        screenshot: { src: '/instructions/create-tunnel/ios/4b.PNG', label: 'Выбор .conf' }
+      },
+      {
+        text: 'Подтвердите импорт и включите туннель.',
+        screenshot: { src: '/instructions/create-tunnel/ios/5.PNG', label: 'Готовый туннель' }
+      }
     ]
   },
   {
@@ -58,12 +69,12 @@ const instructionSections = [
     downloadLabel: 'Скачать AmneziaWG для Windows',
     downloadHref: appDownloadLinks[2].href,
     steps: [
-      'Скачайте AmneziaWG по ссылке выше.',
-      'В личном кабинете скачайте файл .conf у нужного устройства.',
-      'Откройте AmneziaWG и выберите импорт или создание туннеля из файла.',
-      'Выберите скачанный .conf файл и включите туннель.'
-    ],
-    screenshots: []
+      { text: 'Скачайте AmneziaWG по ссылке и установите.', download: true },
+      { text: 'Откройте установленное AmneziaWG.' },
+      { text: 'В личном кабинете скачайте файл .conf у нужного устройства.' },
+      { text: 'В AmneziaWG выберите импорт или создание туннеля из файла.' },
+      { text: 'Выберите скачанный .conf файл и включите туннель.' }
+    ]
   },
   {
     os: 'macOS',
@@ -71,16 +82,24 @@ const instructionSections = [
     downloadLabel: 'Скачать AmneziaWG для macOS',
     downloadHref: appDownloadLinks[3].href,
     steps: [
-      'Скачайте AmneziaWG по ссылке выше.',
-      'В личном кабинете скачайте файл .conf у нужного устройства.',
-      'Откройте AmneziaWG и выберите импорт или создание туннеля из файла.',
-      'Выберите скачанный .conf файл, подтвердите импорт и включите туннель.'
-    ],
-    screenshots: [
-      { src: '/instructions/create-tunnel/macos/2.png', label: 'Создание туннеля' },
-      { src: '/instructions/create-tunnel/macos/3.png', label: 'Импорт из файла' },
-      { src: '/instructions/create-tunnel/macos/4.png', label: 'Выбор .conf' },
-      { src: '/instructions/create-tunnel/macos/5.png', label: 'Готовый туннель' }
+      { text: 'Скачайте AmneziaWG по ссылке и установите.', download: true },
+      {
+        text: 'Запустите AmneziaWG.',
+        screenshot: { src: '/instructions/create-tunnel/macos/2.png', label: 'Запуск AmneziaWG' }
+      },
+      {
+        text: 'Нажмите на значок AmneziaWG в правом верхнем углу.',
+        screenshot: { src: '/instructions/create-tunnel/macos/3.png', label: 'Значок AmneziaWG' }
+      },
+      { text: 'В личном кабинете скачайте файл .conf у нужного устройства.' },
+      {
+        text: 'Выберите "Импорт туннелей из файла".',
+        screenshot: { src: '/instructions/create-tunnel/macos/4.png', label: 'Импорт из файла' }
+      },
+      {
+        text: 'Выберите скачанный .conf файл, подтвердите импорт и включите туннель.',
+        screenshot: { src: '/instructions/create-tunnel/macos/5.png', label: 'Готовый туннель' }
+      }
     ]
   }
 ];
@@ -471,32 +490,44 @@ function InstructionsPage() {
 
               <ol className="mt-6 grid gap-3">
                 {section.steps.map((step, index) => (
-                  <li key={step} className="grid grid-cols-[2rem_1fr] gap-3 text-sm leading-6 text-slate-700">
+                  <li key={`${section.os}-${index}`} className="grid grid-cols-[2rem_1fr] gap-3 text-sm leading-6 text-slate-700">
                     <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-lime-400 text-sm font-black text-slate-950">
                       {index + 1}
                     </span>
-                    <span className={index === 0 ? 'font-black text-slate-950' : ''}>{step}</span>
+                    <div>
+                      <div className={index === 0 ? 'font-black text-slate-950' : ''}>
+                        {step.download ? (
+                          <>
+                            Скачайте{' '}
+                            <a
+                              href={section.downloadHref}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="underline decoration-lime-400 decoration-2 underline-offset-4 hover:text-slate-700"
+                            >
+                              AmneziaWG по ссылке
+                            </a>{' '}
+                            и установите.
+                          </>
+                        ) : step.text}
+                      </div>
+                      {step.screenshot && (
+                        <figure className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                          <img
+                            src={step.screenshot.src}
+                            alt={`${section.os}: ${step.screenshot.label}`}
+                            loading="lazy"
+                            className="max-h-96 w-full object-contain"
+                          />
+                          <figcaption className="border-t border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600">
+                            {step.screenshot.label}
+                          </figcaption>
+                        </figure>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ol>
-
-              {section.screenshots.length > 0 && (
-                <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  {section.screenshots.map((screenshot, index) => (
-                    <figure key={screenshot.src} className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-                      <img
-                        src={screenshot.src}
-                        alt={`${section.os}: ${screenshot.label}`}
-                        loading="lazy"
-                        className="h-72 w-full object-contain"
-                      />
-                      <figcaption className="border-t border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600">
-                        {index + 1}. {screenshot.label}
-                      </figcaption>
-                    </figure>
-                  ))}
-                </div>
-              )}
             </section>
           ))}
         </div>
