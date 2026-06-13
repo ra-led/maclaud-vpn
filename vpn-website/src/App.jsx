@@ -1619,23 +1619,24 @@ export default function VPNLandingPage() {
                                 </div>
                                 <div>
                                   <div className="font-black">
-                                    Откройте приложение и отсканируйте QR или импортируйте файл .conf
+                                    Скачайте файл .conf, откройте AmneziaWG, выберите "Импорт туннелей из файла" или "Создать из файла" и укажите скачанный .conf
                                   </div>
-                                  <div className="mt-4 grid gap-4 md:grid-cols-[auto_1fr] md:items-center">
+                                  <button
+                                    onClick={downloadConfig}
+                                    className="mt-4 rounded-lg bg-emerald-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-800"
+                                  >
+                                    Скачать .conf
+                                  </button>
+                                  <div className="mt-5 font-black">
+                                    Или отсканируйте этот QR-код, если в AmneziaWG на устройстве есть опция "Создать из QR-кода"
+                                  </div>
+                                  <div className="mt-4">
                                     <div className="rounded-lg border border-emerald-200 bg-white p-3">
                                       <img
                                         src={createdConfig.qrDataUrl}
                                         alt="QR-код конфигурации VPN"
                                         className="h-56 w-56 max-w-full"
                                       />
-                                    </div>
-                                    <div>
-                                      <button
-                                        onClick={downloadConfig}
-                                        className="rounded-lg bg-emerald-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-800"
-                                      >
-                                        Скачать .conf
-                                      </button>
                                     </div>
                                   </div>
                                 </div>
