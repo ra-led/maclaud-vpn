@@ -19,6 +19,72 @@ const appDownloadLinks = [
   { label: 'MacOS', icon: 'macos', href: 'https://apps.apple.com/us/app/amneziawg/id6478942365?platform=mac' }
 ];
 
+const instructionSections = [
+  {
+    os: 'Android',
+    icon: 'android',
+    downloadLabel: 'Скачать AmneziaWG для Android',
+    downloadHref: appDownloadLinks[0].href,
+    steps: [
+      'Скачайте AmneziaWG по ссылке выше.',
+      'В личном кабинете скачайте файл .conf у нужного устройства.',
+      'Откройте AmneziaWG и выберите импорт или создание туннеля из файла.',
+      'Выберите скачанный .conf файл и включите туннель.'
+    ],
+    screenshots: []
+  },
+  {
+    os: 'iOS',
+    icon: 'ios',
+    downloadLabel: 'Скачать AmneziaWG для iOS',
+    downloadHref: appDownloadLinks[1].href,
+    steps: [
+      'Скачайте AmneziaWG по ссылке выше.',
+      'В личном кабинете скачайте файл .conf у нужного устройства.',
+      'Откройте AmneziaWG, нажмите создание туннеля и выберите импорт из файла.',
+      'Выберите скачанный .conf файл, подтвердите импорт и включите туннель.'
+    ],
+    screenshots: [
+      { src: '/instructions/create-tunnel/ios/2.jpg', label: 'Создание туннеля' },
+      { src: '/instructions/create-tunnel/ios/3.PNG', label: 'Выбор импорта' },
+      { src: '/instructions/create-tunnel/ios/4a.PNG', label: 'Импорт из файла' },
+      { src: '/instructions/create-tunnel/ios/4b.PNG', label: 'Выбор .conf' },
+      { src: '/instructions/create-tunnel/ios/5.PNG', label: 'Готовый туннель' }
+    ]
+  },
+  {
+    os: 'Windows',
+    icon: 'windows',
+    downloadLabel: 'Скачать AmneziaWG для Windows',
+    downloadHref: appDownloadLinks[2].href,
+    steps: [
+      'Скачайте AmneziaWG по ссылке выше.',
+      'В личном кабинете скачайте файл .conf у нужного устройства.',
+      'Откройте AmneziaWG и выберите импорт или создание туннеля из файла.',
+      'Выберите скачанный .conf файл и включите туннель.'
+    ],
+    screenshots: []
+  },
+  {
+    os: 'macOS',
+    icon: 'macos',
+    downloadLabel: 'Скачать AmneziaWG для macOS',
+    downloadHref: appDownloadLinks[3].href,
+    steps: [
+      'Скачайте AmneziaWG по ссылке выше.',
+      'В личном кабинете скачайте файл .conf у нужного устройства.',
+      'Откройте AmneziaWG и выберите импорт или создание туннеля из файла.',
+      'Выберите скачанный .conf файл, подтвердите импорт и включите туннель.'
+    ],
+    screenshots: [
+      { src: '/instructions/create-tunnel/macos/2.png', label: 'Создание туннеля' },
+      { src: '/instructions/create-tunnel/macos/3.png', label: 'Импорт из файла' },
+      { src: '/instructions/create-tunnel/macos/4.png', label: 'Выбор .conf' },
+      { src: '/instructions/create-tunnel/macos/5.png', label: 'Готовый туннель' }
+    ]
+  }
+];
+
 const heroBenefits = [
   'Дешевле, чем собственный сервер',
   'Повышенная конфиденциальность',
@@ -327,6 +393,118 @@ function BarChart({ rows, labelKey = 'date', valueKey = 'count', valueFormatter 
   );
 }
 
+function InstructionsPage() {
+  return (
+    <div className="min-h-screen bg-[#f7f8fb] text-slate-950">
+      <header className="border-b border-slate-200 bg-white">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
+          <a href="/" className="flex min-w-0 items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-lime-400 text-base font-black">
+              GO
+            </div>
+            <div className="min-w-0">
+              <div className="text-lg font-black tracking-tight">VPN-GO</div>
+              <div className="text-xs text-slate-500">Инструкции подключения</div>
+            </div>
+          </a>
+          <nav className="flex items-center gap-2 text-sm font-bold">
+            <a
+              href="/"
+              className="rounded-lg border border-slate-300 px-4 py-2 text-slate-700 transition hover:border-slate-500 hover:bg-slate-50"
+            >
+              На главную
+            </a>
+          </nav>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+          <h1 className="text-4xl font-black tracking-tight sm:text-5xl">Как подключить VPN</h1>
+          <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
+            Сначала установите AmneziaWG, затем скачайте файл .conf в личном кабинете и импортируйте его в приложение.
+          </p>
+          <div className="mt-6 flex flex-wrap gap-2">
+            {appDownloadLinks.map((link) => (
+              <a
+                key={link.label}
+                href={link.href}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-black text-slate-900 transition hover:border-emerald-400 hover:bg-emerald-50"
+              >
+                <span className="flex h-8 w-8 items-center justify-center rounded bg-emerald-100 text-emerald-800">
+                  <PlatformIcon name={link.icon} />
+                </span>
+                {link.label}
+              </a>
+            ))}
+          </div>
+        </section>
+
+        <div className="mt-6 grid gap-6">
+          {instructionSections.map((section) => (
+            <section
+              key={section.os}
+              id={section.os.toLowerCase()}
+              className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-7"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-12 w-12 items-center justify-center rounded-lg bg-emerald-100 text-emerald-800">
+                    <PlatformIcon name={section.icon} />
+                  </span>
+                  <div>
+                    <h2 className="text-2xl font-black">{section.os}</h2>
+                    <div className="text-sm text-slate-500">Подключение через файл .conf</div>
+                  </div>
+                </div>
+                <a
+                  href={section.downloadHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex rounded-lg bg-slate-950 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800"
+                >
+                  {section.downloadLabel}
+                </a>
+              </div>
+
+              <ol className="mt-6 grid gap-3">
+                {section.steps.map((step, index) => (
+                  <li key={step} className="grid grid-cols-[2rem_1fr] gap-3 text-sm leading-6 text-slate-700">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-lime-400 text-sm font-black text-slate-950">
+                      {index + 1}
+                    </span>
+                    <span className={index === 0 ? 'font-black text-slate-950' : ''}>{step}</span>
+                  </li>
+                ))}
+              </ol>
+
+              {section.screenshots.length > 0 && (
+                <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  {section.screenshots.map((screenshot, index) => (
+                    <figure key={screenshot.src} className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                      <img
+                        src={screenshot.src}
+                        alt={`${section.os}: ${screenshot.label}`}
+                        loading="lazy"
+                        className="h-72 w-full object-contain"
+                      />
+                      <figcaption className="border-t border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600">
+                        {index + 1}. {screenshot.label}
+                      </figcaption>
+                    </figure>
+                  ))}
+                </div>
+              )}
+            </section>
+          ))}
+        </div>
+      </main>
+    </div>
+  );
+}
+
 function AdminDashboard() {
   const [token, setToken] = useState(() => window.sessionStorage.getItem(ADMIN_TOKEN_KEY) || '');
   const [draftToken, setDraftToken] = useState(() => window.sessionStorage.getItem(ADMIN_TOKEN_KEY) || '');
@@ -564,6 +742,10 @@ export default function VPNLandingPage() {
     return <AdminDashboard />;
   }
 
+  if (window.location.pathname === '/instructions') {
+    return <InstructionsPage />;
+  }
+
   if (window.location.pathname === '/agreement') {
     return (
       <div className="min-h-screen bg-[#f7f8fb] text-slate-950">
@@ -578,12 +760,20 @@ export default function VPNLandingPage() {
                 <div className="text-xs text-slate-500">Пользовательское соглашение</div>
               </div>
             </a>
-            <a
-              href="/"
-              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700 transition hover:border-slate-500"
-            >
-              Назад
-            </a>
+            <div className="flex items-center gap-2">
+              <a
+                href="/instructions"
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700 transition hover:border-slate-500 hover:bg-slate-50"
+              >
+                Инструкции
+              </a>
+              <a
+                href="/"
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700 transition hover:border-slate-500 hover:bg-slate-50"
+              >
+                Назад
+              </a>
+            </div>
           </div>
         </header>
         <main className="mx-auto max-w-4xl px-6 py-10">
@@ -1340,6 +1530,12 @@ export default function VPNLandingPage() {
               </div>
             </a>
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              <a
+                href="/instructions"
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 sm:px-4"
+              >
+                Инструкции
+              </a>
               <button
                 onClick={logout}
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 sm:px-4"
@@ -1630,6 +1826,12 @@ export default function VPNLandingPage() {
                                   <div className="mt-5 font-black">
                                     Или отсканируйте этот QR-код, если в AmneziaWG на устройстве есть опция "Создать из QR-кода"
                                   </div>
+                                  <a
+                                    href="/instructions"
+                                    className="mt-3 inline-flex text-sm font-black text-emerald-800 underline decoration-emerald-300 underline-offset-4 hover:text-emerald-950"
+                                  >
+                                    Подробная инструкция со скриншотами
+                                  </a>
                                   <div className="mt-4">
                                     <div className="rounded-lg border border-emerald-200 bg-white p-3">
                                       <img
@@ -1679,18 +1881,26 @@ export default function VPNLandingPage() {
               <div className="text-xs text-slate-500">WireGuard VPN</div>
             </div>
           </a>
-          <button
-            onClick={openLoginConsent}
-            disabled={isAuthenticating}
-            className={`inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-800 ${
-              isAuthenticating ? 'cursor-not-allowed opacity-70' : ''
-            }`}
-          >
-            {isAuthenticating && (
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-            )}
-            {isAuthenticating ? 'Открываем...' : 'Вход'}
-          </button>
+          <div className="flex items-center gap-2">
+            <a
+              href="/instructions"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 transition hover:border-slate-400 hover:bg-white sm:px-4"
+            >
+              Инструкции
+            </a>
+            <button
+              onClick={openLoginConsent}
+              disabled={isAuthenticating}
+              className={`inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-800 ${
+                isAuthenticating ? 'cursor-not-allowed opacity-70' : ''
+              }`}
+            >
+              {isAuthenticating && (
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+              )}
+              {isAuthenticating ? 'Открываем...' : 'Вход'}
+            </button>
+          </div>
         </div>
       </header>
 
