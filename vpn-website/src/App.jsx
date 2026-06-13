@@ -439,22 +439,17 @@ function InstructionsPage() {
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
         <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
           <h1 className="text-4xl font-black tracking-tight sm:text-5xl">Как подключить VPN</h1>
-          <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
-            Сначала установите AmneziaWG, затем скачайте файл .conf в личном кабинете и импортируйте его в приложение.
-          </p>
           <div className="mt-6 flex flex-wrap gap-2">
-            {appDownloadLinks.map((link) => (
+            {instructionSections.map((section) => (
               <a
-                key={link.label}
-                href={link.href}
-                target="_blank"
-                rel="noreferrer"
+                key={section.os}
+                href={`#${section.os.toLowerCase()}`}
                 className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-black text-slate-900 transition hover:border-emerald-400 hover:bg-emerald-50"
               >
                 <span className="flex h-8 w-8 items-center justify-center rounded bg-emerald-100 text-emerald-800">
-                  <PlatformIcon name={link.icon} />
+                  <PlatformIcon name={section.icon} />
                 </span>
-                {link.label}
+                {section.os}
               </a>
             ))}
           </div>
@@ -494,7 +489,7 @@ function InstructionsPage() {
                       {index + 1}
                     </span>
                     <div>
-                      <div className={index === 0 ? 'font-black text-slate-950' : ''}>
+                      <div className="font-black text-slate-950">
                         {step.download ? (
                           <>
                             Скачайте{' '}
