@@ -47,19 +47,19 @@ const instructionSections = [
       { text: 'В личном кабинете скачайте файл .conf у нужного устройства.' },
       {
         text: 'Нажмите +, чтобы создать новый туннель.',
-        screenshot: { src: '/instructions/create-tunnel/ios/3.PNG', label: 'Создание туннеля' }
+        screenshot: { src: '/instructions/create-tunnel/ios/3.jpg', label: 'Создание туннеля' }
       },
       {
         text: 'Выберите импорт из файла.',
-        screenshot: { src: '/instructions/create-tunnel/ios/4a.PNG', label: 'Импорт из файла' }
+        screenshot: { src: '/instructions/create-tunnel/ios/4a.jpg', label: 'Импорт из файла' }
       },
       {
         text: 'Выберите скачанный .conf файл.',
-        screenshot: { src: '/instructions/create-tunnel/ios/4b.PNG', label: 'Выбор .conf' }
+        screenshot: { src: '/instructions/create-tunnel/ios/4b.jpg', label: 'Выбор .conf' }
       },
       {
         text: 'Подтвердите импорт и включите туннель.',
-        screenshot: { src: '/instructions/create-tunnel/ios/5.PNG', label: 'Готовый туннель' }
+        screenshot: { src: '/instructions/create-tunnel/ios/5.jpg', label: 'Готовый туннель' }
       }
     ]
   },
@@ -85,20 +85,20 @@ const instructionSections = [
       { text: 'Скачайте AmneziaWG по ссылке и установите.', download: true },
       {
         text: 'Запустите AmneziaWG.',
-        screenshot: { src: '/instructions/create-tunnel/macos/2.png', label: 'Запуск AmneziaWG' }
+        screenshot: { src: '/instructions/create-tunnel/macos/2.jpg', label: 'Запуск AmneziaWG' }
       },
       {
         text: 'Нажмите на значок AmneziaWG в правом верхнем углу.',
-        screenshot: { src: '/instructions/create-tunnel/macos/3.png', label: 'Значок AmneziaWG' }
+        screenshot: { src: '/instructions/create-tunnel/macos/3.jpg', label: 'Значок AmneziaWG' }
       },
       { text: 'В личном кабинете скачайте файл .conf у нужного устройства.' },
       {
         text: 'Выберите "Импорт туннелей из файла".',
-        screenshot: { src: '/instructions/create-tunnel/macos/4.png', label: 'Импорт из файла' }
+        screenshot: { src: '/instructions/create-tunnel/macos/4.jpg', label: 'Импорт из файла' }
       },
       {
         text: 'Выберите скачанный .conf файл, подтвердите импорт и включите туннель.',
-        screenshot: { src: '/instructions/create-tunnel/macos/5.png', label: 'Готовый туннель' }
+        screenshot: { src: '/instructions/create-tunnel/macos/5.jpg', label: 'Готовый туннель' }
       }
     ]
   }
