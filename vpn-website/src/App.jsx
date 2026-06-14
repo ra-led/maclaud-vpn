@@ -27,7 +27,7 @@ const instructionSections = [
     downloadHref: appDownloadLinks[0].href,
     steps: [
       { text: 'Скачайте AmneziaWG по ссылке и установите.', download: true },
-      { text: 'В личном кабинете скачайте файл .conf у нужного устройства.' },
+      { text: 'В личном кабинете добавьте/выберите нужное устройство в списке и скачайте файл .conf.', accountLink: true },
       { text: 'Откройте установленное AmneziaWG.' },
       { text: 'В AmneziaWG выберите импорт или создание туннеля из файла.' },
       { text: 'Выберите скачанный .conf файл и включите туннель.' }
@@ -40,7 +40,7 @@ const instructionSections = [
     downloadHref: appDownloadLinks[1].href,
     steps: [
       { text: 'Скачайте AmneziaWG по ссылке и установите.', download: true },
-      { text: 'В личном кабинете скачайте файл .conf у нужного устройства.' },
+      { text: 'В личном кабинете добавьте/выберите нужное устройство в списке и скачайте файл .conf.', accountLink: true },
       {
         text: 'Откройте установленное AmneziaWG.',
         screenshot: { src: '/instructions/create-tunnel/ios/2.jpg', label: 'Откройте AmneziaWG' }
@@ -69,7 +69,7 @@ const instructionSections = [
     downloadHref: appDownloadLinks[2].href,
     steps: [
       { text: 'Скачайте AmneziaWG по ссылке и установите.', download: true },
-      { text: 'В личном кабинете скачайте файл .conf у нужного устройства.' },
+      { text: 'В личном кабинете добавьте/выберите нужное устройство в списке и скачайте файл .conf.', accountLink: true },
       { text: 'Откройте установленное AmneziaWG.' },
       { text: 'В AmneziaWG выберите импорт или создание туннеля из файла.' },
       { text: 'Выберите скачанный .conf файл и включите туннель.' }
@@ -82,7 +82,7 @@ const instructionSections = [
     downloadHref: appDownloadLinks[3].href,
     steps: [
       { text: 'Скачайте AmneziaWG по ссылке и установите.', download: true },
-      { text: 'В личном кабинете скачайте файл .conf у нужного устройства.' },
+      { text: 'В личном кабинете добавьте/выберите нужное устройство в списке и скачайте файл .conf.', accountLink: true },
       {
         text: 'Запустите AmneziaWG.',
         screenshot: { src: '/instructions/create-tunnel/macos/2.jpg', label: 'Запуск AmneziaWG' }
@@ -502,6 +502,17 @@ function InstructionsPage() {
                               AmneziaWG по ссылке
                             </a>{' '}
                             и установите.
+                          </>
+                        ) : step.accountLink ? (
+                          <>
+                            В{' '}
+                            <a
+                              href="/?login=1"
+                              className="underline decoration-lime-400 decoration-2 underline-offset-4 hover:text-slate-700"
+                            >
+                              личном кабинете
+                            </a>{' '}
+                            добавьте/выберите нужное устройство в списке и скачайте файл .conf.
                           </>
                         ) : step.text}
                       </div>
