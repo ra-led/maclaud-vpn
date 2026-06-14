@@ -103,6 +103,11 @@ const instructionSections = [
   }
 ];
 
+const accountConfigScreenshot = {
+  src: '/instructions/create-tunnel/dl_conf.jpg',
+  label: 'Скачайте .conf в личном кабинете'
+};
+
 const heroBenefits = [
   'Дешевле, чем собственный сервер',
   'Повышенная конфиденциальность',
@@ -483,55 +488,58 @@ function InstructionsPage() {
               </div>
 
               <ol className="mt-6 grid gap-3">
-                {section.steps.map((step, index) => (
-                  <li key={`${section.os}-${index}`} className="grid grid-cols-[2rem_1fr] gap-3 text-sm leading-6 text-slate-700">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-lime-400 text-sm font-black text-slate-950">
-                      {index + 1}
-                    </span>
-                    <div>
-                      <div className="font-black text-slate-950">
-                        {step.download ? (
-                          <>
-                            Скачайте{' '}
-                            <a
-                              href={section.downloadHref}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="underline decoration-lime-400 decoration-2 underline-offset-4 hover:text-slate-700"
-                            >
-                              AmneziaWG по ссылке
-                            </a>{' '}
-                            и установите.
-                          </>
-                        ) : step.accountLink ? (
-                          <>
-                            В{' '}
-                            <a
-                              href="/?login=1"
-                              className="underline decoration-lime-400 decoration-2 underline-offset-4 hover:text-slate-700"
-                            >
-                              личном кабинете
-                            </a>{' '}
-                            добавьте/выберите нужное устройство в списке и скачайте файл .conf.
-                          </>
-                        ) : step.text}
+                {section.steps.map((step, index) => {
+                  const screenshot = step.accountLink ? accountConfigScreenshot : step.screenshot;
+                  return (
+                    <li key={`${section.os}-${index}`} className="grid grid-cols-[2rem_1fr] gap-3 text-sm leading-6 text-slate-700">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-lime-400 text-sm font-black text-slate-950">
+                        {index + 1}
+                      </span>
+                      <div>
+                        <div className="font-black text-slate-950">
+                          {step.download ? (
+                            <>
+                              Скачайте{' '}
+                              <a
+                                href={section.downloadHref}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="underline decoration-lime-400 decoration-2 underline-offset-4 hover:text-slate-700"
+                              >
+                                AmneziaWG по ссылке
+                              </a>{' '}
+                              и установите.
+                            </>
+                          ) : step.accountLink ? (
+                            <>
+                              В{' '}
+                              <a
+                                href="/?login=1"
+                                className="underline decoration-lime-400 decoration-2 underline-offset-4 hover:text-slate-700"
+                              >
+                                личном кабинете
+                              </a>{' '}
+                              добавьте/выберите нужное устройство в списке и скачайте файл .conf.
+                            </>
+                          ) : step.text}
+                        </div>
+                        {screenshot && (
+                          <figure className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                            <img
+                              src={screenshot.src}
+                              alt={`${section.os}: ${screenshot.label}`}
+                              loading="lazy"
+                              className="max-h-96 w-full object-contain"
+                            />
+                            <figcaption className="border-t border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600">
+                              {screenshot.label}
+                            </figcaption>
+                          </figure>
+                        )}
                       </div>
-                      {step.screenshot && (
-                        <figure className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-                          <img
-                            src={step.screenshot.src}
-                            alt={`${section.os}: ${step.screenshot.label}`}
-                            loading="lazy"
-                            className="max-h-96 w-full object-contain"
-                          />
-                          <figcaption className="border-t border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600">
-                            {step.screenshot.label}
-                          </figcaption>
-                        </figure>
-                      )}
-                    </div>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ol>
             </section>
           ))}
