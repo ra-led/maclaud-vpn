@@ -637,7 +637,11 @@ function AdminDashboard() {
         {data && (
           <>
             <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <MetricCard label="Активировано аккаунтов" value={formatCompactNumber(passkeys.total || accountTotals.total)} sub={`За 7 дней: ${formatCompactNumber(passkeys.created_7d)}`} />
+              <MetricCard
+                label="Активировано аккаунтов"
+                value={formatCompactNumber(passkeys.total || accountTotals.total)}
+                sub={`Сегодня: ${formatCompactNumber(passkeys.created_today)} · Неделя: ${formatCompactNumber(passkeys.created_week)} · Месяц: ${formatCompactNumber(passkeys.created_month)}`}
+              />
               <MetricCard label="Нажатий на вход" value={formatCompactNumber(loginClicks)} sub="С момента включения трекинга" />
               <MetricCard label="По рефералке" value={formatCompactNumber(referrals.awarded)} sub={`Бонусы: ${formatRubPrecise(referrals.awarded_bonus_kopecks)}`} />
               <MetricCard label="Устройств" value={formatCompactNumber(devices.non_deleted)} sub={`Активных: ${formatCompactNumber(devices.active)}`} />

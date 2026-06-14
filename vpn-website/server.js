@@ -897,7 +897,16 @@ async function getWebsiteAdminOverview() {
           COUNT(*) FILTER (WHERE test)::int AS test,
           COUNT(*) FILTER (WHERE last_login_at IS NOT NULL)::int AS logged_in,
           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours')::int AS created_24h,
-          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')::int AS created_7d
+          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')::int AS created_7d,
+          COUNT(*) FILTER (
+            WHERE created_at >= (date_trunc('day', NOW() AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow')
+          )::int AS created_today,
+          COUNT(*) FILTER (
+            WHERE created_at >= (date_trunc('week', NOW() AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow')
+          )::int AS created_week,
+          COUNT(*) FILTER (
+            WHERE created_at >= (date_trunc('month', NOW() AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow')
+          )::int AS created_month
         FROM passkey_accounts
       `
     ),
@@ -961,7 +970,15 @@ async function getWebsiteAdminOverview() {
   ]);
 
   return {
-    passkeys: accountCounts.rows[0] || { total: 0, logged_in: 0, created_24h: 0, created_7d: 0 },
+    passkeys: accountCounts.rows[0] || {
+      total: 0,
+      logged_in: 0,
+      created_24h: 0,
+      created_7d: 0,
+      created_today: 0,
+      created_week: 0,
+      created_month: 0
+    },
     auth_events: {
       totals: authEventCounts.rows,
       by_day: authEventsByDay.rows
