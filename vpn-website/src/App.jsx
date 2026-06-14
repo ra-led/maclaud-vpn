@@ -471,6 +471,7 @@ function SupportThreadChat({
   isSending,
   error,
   canCreateIncident = false,
+  embedded = false,
   onSelectIncident,
   onSendMessage
 }) {
@@ -478,7 +479,7 @@ function SupportThreadChat({
   const inputDisabled = isSending || (!selectedIncident && !canCreateIncident);
 
   return (
-    <div className="vpngo-support-chat min-w-0 rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+    <div className={`vpngo-support-chat min-w-0 ${embedded ? 'p-5 sm:p-6' : 'rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-6'}`}>
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-xl font-black">{title}</h2>
@@ -1105,6 +1106,7 @@ export default function VPNLandingPage() {
   const [supportError, setSupportError] = useState('');
   const [isLoadingSupport, setIsLoadingSupport] = useState(false);
   const [isSendingSupport, setIsSendingSupport] = useState(false);
+  const [isSupportOpen, setIsSupportOpen] = useState(false);
   const configRevealTimerRef = useRef(null);
   const [heroBenefitIndex, setHeroBenefitIndex] = useState(0);
   const normalizedTopUpAmount = Number(String(topUpAmount).replace(',', '.'));
@@ -1576,6 +1578,7 @@ export default function VPNLandingPage() {
     setSelectedSupportIncidentId(null);
     setSupportMessages([]);
     setSupportError('');
+    setIsSupportOpen(false);
   }
 
   async function createPayment() {
@@ -2340,21 +2343,47 @@ export default function VPNLandingPage() {
           </section>
 
           <section className="order-last min-w-0 lg:col-span-2">
-            <SupportThreadChat
-              title="Поддержка"
-              subtitle="Диалоги идут отдельными инцидентами"
-              incidents={supportIncidents}
-              selectedIncidentId={selectedSupportIncidentId}
-              messages={supportMessages}
-              ownAuthorType="user"
-              emptyText="Напишите сообщение, чтобы создать новый инцидент."
-              isLoading={isLoadingSupport}
-              isSending={isSendingSupport}
-              error={supportError}
-              canCreateIncident
-              onSelectIncident={selectSupportIncident}
-              onSendMessage={sendSupportMessage}
-            />
+            <div className="min-w-0 rounded-lg border border-slate-200 bg-white shadow-sm">
+              <button
+                type="button"
+                onClick={() => setIsSupportOpen((current) => !current)}
+                className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left sm:px-6"
+                aria-expanded={isSupportOpen}
+              >
+                <div className="min-w-0">
+                  <div className="text-xl font-black">Поддержка</div>
+                  <div className="mt-1 text-sm text-slate-500">
+                    {supportIncidents.length
+                      ? `${supportIncidents.length} ${supportIncidents.length === 1 ? 'инцидент' : 'инцидентов'}`
+                      : 'Напишите нам, если что-то пошло не так'}
+                  </div>
+                </div>
+                <span className="shrink-0 rounded-lg border border-slate-300 px-3 py-2 text-xs font-black text-slate-700">
+                  {isSupportOpen ? 'Свернуть' : 'Открыть'}
+                </span>
+              </button>
+
+              {isSupportOpen && (
+                <div className="border-t border-slate-200 p-0">
+                  <SupportThreadChat
+                    title="Поддержка"
+                    subtitle="Диалоги идут отдельными инцидентами"
+                    incidents={supportIncidents}
+                    selectedIncidentId={selectedSupportIncidentId}
+                    messages={supportMessages}
+                    ownAuthorType="user"
+                    emptyText="Напишите сообщение, чтобы создать новый инцидент."
+                    isLoading={isLoadingSupport}
+                    isSending={isSendingSupport}
+                    error={supportError}
+                    canCreateIncident
+                    embedded
+                    onSelectIncident={selectSupportIncident}
+                    onSendMessage={sendSupportMessage}
+                  />
+                </div>
+              )}
+            </div>
           </section>
         </main>
         {deleteDeviceModal}
