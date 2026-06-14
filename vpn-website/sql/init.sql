@@ -185,3 +185,34 @@ CREATE INDEX IF NOT EXISTS ix_admin_auth_events_event_type_created_at
 CREATE INDEX IF NOT EXISTS ix_admin_auth_events_user_id_created_at
   ON admin_auth_events (user_id, created_at DESC)
   WHERE user_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS support_incidents (
+  id BIGSERIAL PRIMARY KEY,
+  incident_number TEXT UNIQUE,
+  user_id TEXT NOT NULL REFERENCES passkey_accounts(user_id) ON DELETE CASCADE,
+  subject TEXT NOT NULL DEFAULT 'Обращение в поддержку',
+  status TEXT NOT NULL DEFAULT 'open',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_message_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_support_incidents_user_updated
+  ON support_incidents (user_id, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS ix_support_incidents_status_updated
+  ON support_incidents (status, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS ix_support_incidents_last_message
+  ON support_incidents (last_message_at DESC);
+
+CREATE TABLE IF NOT EXISTS support_messages (
+  id BIGSERIAL PRIMARY KEY,
+  incident_id BIGINT NOT NULL REFERENCES support_incidents(id) ON DELETE CASCADE,
+  author_type TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_support_messages_incident_created
+  ON support_messages (incident_id, created_at ASC);

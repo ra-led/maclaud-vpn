@@ -29,6 +29,58 @@ body,
   animation: hero-benefit-in 520ms ease both;
 }
 
+.support-chat-frame {
+  height: min(72vh, 720px);
+  min-height: 460px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+}
+
+.vpngo-support-chat .cs-main-container,
+.vpngo-support-chat .cs-sidebar,
+.vpngo-support-chat .cs-chat-container,
+.vpngo-support-chat .cs-conversation-header,
+.vpngo-support-chat .cs-message-input {
+  border-color: #e2e8f0;
+}
+
+.vpngo-support-chat .cs-conversation--active {
+  background: #ecfdf5;
+}
+
+.vpngo-support-chat .cs-message__content {
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.vpngo-support-chat .cs-message--outgoing .cs-message__content {
+  background: #0f172a;
+  color: #fff;
+}
+
+.vpngo-support-chat .cs-message--incoming .cs-message__content {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.vpngo-support-chat .cs-message-input__content-editor-wrapper,
+.vpngo-support-chat .cs-message-input__content-editor {
+  background: #fff;
+}
+
+.vpngo-support-chat .cs-button--send {
+  color: #0f172a;
+}
+
+@media (max-width: 720px) {
+  .support-chat-frame {
+    height: 640px;
+    min-height: 640px;
+  }
+}
+
 @keyframes dark-rainbow-shift {
   0%,
   100% {

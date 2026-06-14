@@ -1501,10 +1501,123 @@ function sendApiError(res, error, fallback = 'Unexpected API error') {
   });
 }
 
+function normalizeSupportMessage(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  return value.replace(/\r\n/g, '\n').trim().slice(0, 2000);
+}
+
+function normalizeSupportSubject(value, fallbackBody = '') {
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim().slice(0, 120);
+  }
+  const firstLine = normalizeSupportMessage(fallbackBody).split('\n')[0]?.trim();
+  return firstLine ? firstLine.slice(0, 80) : 'Обращение в поддержку';
+}
+
+function createIncidentNumber(id) {
+  return `INC-${String(id).padStart(6, '0')}`;
+}
+
+function mapSupportIncident(row) {
+  if (!row) {
+    return null;
+  }
+  return {
+    id: Number(row.id),
+    incident_number: row.incident_number || createIncidentNumber(row.id),
+    user_id: row.user_id,
+    subject: row.subject,
+    status: row.status,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    last_message_at: row.last_message_at,
+    last_message_body: row.last_message_body || '',
+    last_message_author_type: row.last_message_author_type || null,
+    messages_count: Number(row.messages_count || 0)
+  };
+}
+
+function mapSupportMessage(row) {
+  return {
+    id: Number(row.id),
+    incident_id: Number(row.incident_id),
+    author_type: row.author_type,
+    body: row.body,
+    created_at: row.created_at
+  };
+}
+
+async function listSupportIncidents({ userId = null } = {}) {
+  const params = [];
+  const where = userId ? 'WHERE i.user_id = $1' : '';
+  if (userId) {
+    params.push(String(userId));
+  }
+  const result = await pool.query(
+    `
+      SELECT
+        i.*,
+        last_message.body AS last_message_body,
+        last_message.author_type AS last_message_author_type,
+        COALESCE(message_counts.messages_count, 0) AS messages_count
+      FROM support_incidents i
+      LEFT JOIN LATERAL (
+        SELECT body, author_type
+        FROM support_messages
+        WHERE incident_id = i.id
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+      ) last_message ON true
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::INTEGER AS messages_count
+        FROM support_messages
+        WHERE incident_id = i.id
+      ) message_counts ON true
+      ${where}
+      ORDER BY i.last_message_at DESC, i.id DESC
+    `,
+    params
+  );
+  return result.rows.map(mapSupportIncident);
+}
+
+async function getSupportIncidentForUser(incidentId, userId) {
+  const result = await pool.query(
+    'SELECT * FROM support_incidents WHERE id = $1 AND user_id = $2 LIMIT 1',
+    [incidentId, String(userId)]
+  );
+  return result.rows[0] || null;
+}
+
+async function getSupportIncident(incidentId) {
+  const result = await pool.query(
+    'SELECT * FROM support_incidents WHERE id = $1 LIMIT 1',
+    [incidentId]
+  );
+  return result.rows[0] || null;
+}
+
+async function listSupportMessages(incidentId) {
+  const result = await pool.query(
+    `
+      SELECT *
+      FROM support_messages
+      WHERE incident_id = $1
+      ORDER BY created_at ASC, id ASC
+    `,
+    [incidentId]
+  );
+  return result.rows.map(mapSupportMessage);
+}
+
 app.use('/api/passkeys', rateLimit({ windowMs: 60_000, max: 20, keyPrefix: 'passkeys' }));
 app.use('/api/create-payment', rateLimit({ windowMs: 60_000, max: 8, keyPrefix: 'payment-create' }));
 app.use('/api/devices', rateLimit({ windowMs: 60_000, max: 60, keyPrefix: 'devices' }));
 app.use('/api/auth-events', rateLimit({ windowMs: 60_000, max: 30, keyPrefix: 'auth-events' }));
+app.use('/api/support', rateLimit({ windowMs: 60_000, max: 40, keyPrefix: 'support' }));
+app.use('/api/otrs', rateLimit({ windowMs: 60_000, max: 90, keyPrefix: 'otrs' }));
 
 app.post('/api/auth-events/login-click', async (req, res) => {
   try {
@@ -1530,6 +1643,118 @@ app.get('/api/admin/overview', requireAdminDashboard, async (_req, res) => {
   } catch (error) {
     console.error('admin overview failed', { message: error instanceof Error ? error.message : String(error) });
     return sendApiError(res, error, 'Failed to load admin overview');
+  }
+});
+
+app.get('/api/otrs/incidents', requireAdminDashboard, async (_req, res) => {
+  try {
+    const incidents = await listSupportIncidents();
+    return res.json({ incidents });
+  } catch (error) {
+    console.error('otrs incidents load failed', { message: error instanceof Error ? error.message : String(error) });
+    return sendApiError(res, error, 'Failed to load support incidents');
+  }
+});
+
+app.get('/api/otrs/incidents/:incidentId/messages', requireAdminDashboard, async (req, res) => {
+  const incidentId = Number(req.params.incidentId);
+  if (!Number.isSafeInteger(incidentId) || incidentId <= 0) {
+    return res.status(400).json({ error: 'Invalid incident id' });
+  }
+
+  try {
+    const incident = await getSupportIncident(incidentId);
+    if (!incident) {
+      return res.status(404).json({ error: 'Incident was not found' });
+    }
+    const messages = await listSupportMessages(incidentId);
+    return res.json({ incident: mapSupportIncident(incident), messages });
+  } catch (error) {
+    console.error('otrs messages load failed', { message: error instanceof Error ? error.message : String(error) });
+    return sendApiError(res, error, 'Failed to load support messages');
+  }
+});
+
+app.post('/api/otrs/incidents/:incidentId/messages', requireAdminDashboard, async (req, res) => {
+  const incidentId = Number(req.params.incidentId);
+  const body = normalizeSupportMessage(req.body?.body);
+  if (!Number.isSafeInteger(incidentId) || incidentId <= 0) {
+    return res.status(400).json({ error: 'Invalid incident id' });
+  }
+  if (!body) {
+    return res.status(400).json({ error: 'Message is required' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const incidentResult = await client.query(
+      'SELECT * FROM support_incidents WHERE id = $1 FOR UPDATE',
+      [incidentId]
+    );
+    const incident = incidentResult.rows[0];
+    if (!incident) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Incident was not found' });
+    }
+    const messageResult = await client.query(
+      `
+        INSERT INTO support_messages (incident_id, author_type, body)
+        VALUES ($1, 'support', $2)
+        RETURNING *
+      `,
+      [incidentId, body]
+    );
+    const updatedIncidentResult = await client.query(
+      `
+        UPDATE support_incidents
+        SET status = 'answered', updated_at = NOW(), last_message_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `,
+      [incidentId]
+    );
+    await client.query('COMMIT');
+    return res.json({
+      incident: mapSupportIncident(updatedIncidentResult.rows[0]),
+      message: mapSupportMessage(messageResult.rows[0])
+    });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    console.error('otrs reply failed', { message: error instanceof Error ? error.message : String(error) });
+    return sendApiError(res, error, 'Failed to send support reply');
+  } finally {
+    client.release();
+  }
+});
+
+app.patch('/api/otrs/incidents/:incidentId', requireAdminDashboard, async (req, res) => {
+  const incidentId = Number(req.params.incidentId);
+  const status = typeof req.body?.status === 'string' ? req.body.status : '';
+  if (!Number.isSafeInteger(incidentId) || incidentId <= 0) {
+    return res.status(400).json({ error: 'Invalid incident id' });
+  }
+  if (!['open', 'answered', 'closed'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid incident status' });
+  }
+
+  try {
+    const result = await pool.query(
+      `
+        UPDATE support_incidents
+        SET status = $2, updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `,
+      [incidentId, status]
+    );
+    if (!result.rows[0]) {
+      return res.status(404).json({ error: 'Incident was not found' });
+    }
+    return res.json({ incident: mapSupportIncident(result.rows[0]) });
+  } catch (error) {
+    console.error('otrs incident update failed', { message: error instanceof Error ? error.message : String(error) });
+    return sendApiError(res, error, 'Failed to update support incident');
   }
 });
 
@@ -1925,6 +2150,138 @@ app.get('/api/account/:userId', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('account load failed', { message: error instanceof Error ? error.message : String(error) });
     return sendApiError(res, error, 'Failed to load account');
+  }
+});
+
+app.get('/api/support/incidents', requireAuth, async (req, res) => {
+  try {
+    const incidents = await listSupportIncidents({ userId: req.auth.userId });
+    return res.json({ incidents });
+  } catch (error) {
+    console.error('support incidents load failed', { message: error instanceof Error ? error.message : String(error) });
+    return sendApiError(res, error, 'Failed to load support incidents');
+  }
+});
+
+app.post('/api/support/incidents', requireAuth, async (req, res) => {
+  const body = normalizeSupportMessage(req.body?.body);
+  if (!body) {
+    return res.status(400).json({ error: 'Message is required' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const incidentResult = await client.query(
+      `
+        INSERT INTO support_incidents (user_id, subject, status)
+        VALUES ($1, $2, 'open')
+        RETURNING *
+      `,
+      [String(req.auth.userId), normalizeSupportSubject(req.body?.subject, body)]
+    );
+    const incident = incidentResult.rows[0];
+    const incidentNumber = createIncidentNumber(incident.id);
+    const numberedIncidentResult = await client.query(
+      `
+        UPDATE support_incidents
+        SET incident_number = $2, updated_at = NOW(), last_message_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `,
+      [incident.id, incidentNumber]
+    );
+    const messageResult = await client.query(
+      `
+        INSERT INTO support_messages (incident_id, author_type, body)
+        VALUES ($1, 'user', $2)
+        RETURNING *
+      `,
+      [incident.id, body]
+    );
+    await client.query('COMMIT');
+    return res.status(201).json({
+      incident: mapSupportIncident(numberedIncidentResult.rows[0]),
+      messages: [mapSupportMessage(messageResult.rows[0])]
+    });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    console.error('support incident create failed', { message: error instanceof Error ? error.message : String(error) });
+    return sendApiError(res, error, 'Failed to create support incident');
+  } finally {
+    client.release();
+  }
+});
+
+app.get('/api/support/incidents/:incidentId/messages', requireAuth, async (req, res) => {
+  const incidentId = Number(req.params.incidentId);
+  if (!Number.isSafeInteger(incidentId) || incidentId <= 0) {
+    return res.status(400).json({ error: 'Invalid incident id' });
+  }
+
+  try {
+    const incident = await getSupportIncidentForUser(incidentId, req.auth.userId);
+    if (!incident) {
+      return res.status(404).json({ error: 'Incident was not found' });
+    }
+    const messages = await listSupportMessages(incidentId);
+    return res.json({ incident: mapSupportIncident(incident), messages });
+  } catch (error) {
+    console.error('support messages load failed', { message: error instanceof Error ? error.message : String(error) });
+    return sendApiError(res, error, 'Failed to load support messages');
+  }
+});
+
+app.post('/api/support/incidents/:incidentId/messages', requireAuth, async (req, res) => {
+  const incidentId = Number(req.params.incidentId);
+  const body = normalizeSupportMessage(req.body?.body);
+  if (!Number.isSafeInteger(incidentId) || incidentId <= 0) {
+    return res.status(400).json({ error: 'Invalid incident id' });
+  }
+  if (!body) {
+    return res.status(400).json({ error: 'Message is required' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const incidentResult = await client.query(
+      'SELECT * FROM support_incidents WHERE id = $1 AND user_id = $2 FOR UPDATE',
+      [incidentId, String(req.auth.userId)]
+    );
+    const incident = incidentResult.rows[0];
+    if (!incident) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Incident was not found' });
+    }
+    const messageResult = await client.query(
+      `
+        INSERT INTO support_messages (incident_id, author_type, body)
+        VALUES ($1, 'user', $2)
+        RETURNING *
+      `,
+      [incidentId, body]
+    );
+    const updatedIncidentResult = await client.query(
+      `
+        UPDATE support_incidents
+        SET status = 'open', updated_at = NOW(), last_message_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `,
+      [incidentId]
+    );
+    await client.query('COMMIT');
+    return res.json({
+      incident: mapSupportIncident(updatedIncidentResult.rows[0]),
+      message: mapSupportMessage(messageResult.rows[0])
+    });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    console.error('support reply failed', { message: error instanceof Error ? error.message : String(error) });
+    return sendApiError(res, error, 'Failed to send support message');
+  } finally {
+    client.release();
   }
 });
 

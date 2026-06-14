@@ -1,5 +1,17 @@
 import QRCode from 'qrcode';
 import FingerprintJS from '@fingerprintjs/fingerprintjs';
+import '@chatscope/chat-ui-kit-styles/dist/default/styles.min.css';
+import {
+  ChatContainer,
+  Conversation,
+  ConversationHeader,
+  ConversationList,
+  MainContainer,
+  Message,
+  MessageInput,
+  MessageList,
+  Sidebar
+} from '@chatscope/chat-ui-kit-react';
 import { browserSupportsWebAuthn, startAuthentication, startRegistration } from '@simplewebauthn/browser';
 import { useEffect, useRef, useState } from 'react';
 import { userAgreementText } from './userAgreement.js';
@@ -416,6 +428,300 @@ function BarChart({ rows, labelKey = 'date', valueKey = 'count', valueFormatter 
   );
 }
 
+function incidentStatusLabel(status) {
+  return {
+    open: 'Открыт',
+    answered: 'Ответ поддержки',
+    closed: 'Закрыт'
+  }[status] || status || 'Открыт';
+}
+
+function incidentStatusClass(status) {
+  if (status === 'answered') {
+    return 'bg-emerald-50 text-emerald-700';
+  }
+  if (status === 'closed') {
+    return 'bg-slate-100 text-slate-500';
+  }
+  return 'bg-amber-50 text-amber-700';
+}
+
+function supportMessageDirection(message, ownAuthorType) {
+  return message.author_type === ownAuthorType ? 'outgoing' : 'incoming';
+}
+
+function sanitizeOutgoingMessage(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  const container = document.createElement('div');
+  container.innerHTML = value;
+  return (container.textContent || value).trim();
+}
+
+function SupportThreadChat({
+  title,
+  subtitle,
+  incidents,
+  selectedIncidentId,
+  messages,
+  ownAuthorType,
+  emptyText,
+  isLoading,
+  isSending,
+  error,
+  canCreateIncident = false,
+  onSelectIncident,
+  onSendMessage
+}) {
+  const selectedIncident = incidents.find((incident) => incident.id === selectedIncidentId) || null;
+  const inputDisabled = isSending || (!selectedIncident && !canCreateIncident);
+
+  return (
+    <div className="vpngo-support-chat min-w-0 rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-xl font-black">{title}</h2>
+          {subtitle && <div className="mt-1 text-sm text-slate-500">{subtitle}</div>}
+        </div>
+        {isLoading && <div className="text-sm font-bold text-slate-500">Загрузка...</div>}
+      </div>
+
+      {error && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      <div className="support-chat-frame">
+        <MainContainer responsive>
+          <Sidebar position="left" scrollable>
+            <ConversationList>
+              {incidents.length === 0 ? (
+                <div className="p-4 text-sm leading-6 text-slate-500">{emptyText}</div>
+              ) : incidents.map((incident) => (
+                <Conversation
+                  key={incident.id}
+                  name={incident.incident_number}
+                  info={incident.subject || 'Обращение в поддержку'}
+                  lastSenderName={incident.last_message_author_type === 'support' ? 'Поддержка' : 'Клиент'}
+                  lastActivityTime={dateLabel(incident.last_message_at)}
+                  active={incident.id === selectedIncidentId}
+                  onClick={() => onSelectIncident(incident.id)}
+                >
+                  <Conversation.Content>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-sm font-black text-slate-950">{incident.incident_number}</span>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black ${incidentStatusClass(incident.status)}`}>
+                          {incidentStatusLabel(incident.status)}
+                        </span>
+                      </div>
+                      <div className="mt-1 truncate text-xs font-semibold text-slate-500">
+                        {incident.subject || 'Обращение в поддержку'}
+                      </div>
+                    </div>
+                  </Conversation.Content>
+                </Conversation>
+              ))}
+            </ConversationList>
+          </Sidebar>
+
+          <ChatContainer>
+            <ConversationHeader>
+              <ConversationHeader.Content
+                userName={selectedIncident ? selectedIncident.incident_number : 'Новое обращение'}
+                info={selectedIncident ? selectedIncident.subject : emptyText}
+              />
+            </ConversationHeader>
+            <MessageList>
+              {selectedIncident || messages.length ? (
+                messages.map((message) => (
+                  <Message
+                    key={message.id}
+                    model={{
+                      message: message.body,
+                      sentTime: new Date(message.created_at).toLocaleString('ru-RU'),
+                      sender: message.author_type === 'support' ? 'Поддержка' : 'Клиент',
+                      direction: supportMessageDirection(message, ownAuthorType),
+                      position: 'single'
+                    }}
+                  />
+                ))
+              ) : (
+                <MessageList.Content>
+                  <div className="flex h-full items-center justify-center p-6 text-center text-sm leading-6 text-slate-500">
+                    {emptyText}
+                  </div>
+                </MessageList.Content>
+              )}
+            </MessageList>
+            <MessageInput
+              attachButton={false}
+              disabled={inputDisabled}
+              placeholder={inputDisabled && !isSending ? 'Выберите инцидент' : isSending ? 'Отправляем...' : 'Напишите сообщение...'}
+              onSend={(innerHtml, textContent) => {
+                const message = sanitizeOutgoingMessage(textContent || innerHtml);
+                if (message) {
+                  onSendMessage(message);
+                }
+              }}
+            />
+          </ChatContainer>
+        </MainContainer>
+      </div>
+    </div>
+  );
+}
+
+function upsertIncident(incidents, incident) {
+  const next = incidents.some((item) => item.id === incident.id)
+    ? incidents.map((item) => (item.id === incident.id ? { ...item, ...incident } : item))
+    : [incident, ...incidents];
+  return next.sort((left, right) => new Date(right.last_message_at || right.updated_at) - new Date(left.last_message_at || left.updated_at));
+}
+
+function OtrsDashboard() {
+  const [token, setToken] = useState(() => window.sessionStorage.getItem(ADMIN_TOKEN_KEY) || '');
+  const [draftToken, setDraftToken] = useState(() => window.sessionStorage.getItem(ADMIN_TOKEN_KEY) || '');
+  const [incidents, setIncidents] = useState([]);
+  const [selectedIncidentId, setSelectedIncidentId] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+
+  async function loadIncidents(nextToken = token) {
+    if (!nextToken) {
+      setError('Введите admin token');
+      return;
+    }
+    setIsLoading(true);
+    setError('');
+    try {
+      const payload = await fetch('/api/otrs/incidents', {
+        headers: { 'X-Admin-Token': nextToken }
+      }).then(readJson);
+      window.sessionStorage.setItem(ADMIN_TOKEN_KEY, nextToken);
+      setToken(nextToken);
+      setIncidents(payload.incidents || []);
+      const nextSelectedId = selectedIncidentId || payload.incidents?.[0]?.id || null;
+      setSelectedIncidentId(nextSelectedId);
+      if (nextSelectedId) {
+        await loadMessages(nextSelectedId, nextToken);
+      } else {
+        setMessages([]);
+      }
+    } catch (loadError) {
+      setError(userMessage(loadError, 'Не удалось загрузить инциденты'));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function loadMessages(incidentId, nextToken = token) {
+    setError('');
+    const payload = await fetch(`/api/otrs/incidents/${incidentId}/messages`, {
+      headers: { 'X-Admin-Token': nextToken }
+    }).then(readJson);
+    setMessages(payload.messages || []);
+    if (payload.incident) {
+      setIncidents((current) => upsertIncident(current, payload.incident));
+    }
+  }
+
+  async function selectIncident(incidentId) {
+    setSelectedIncidentId(incidentId);
+    setIsLoading(true);
+    try {
+      await loadMessages(incidentId);
+    } catch (loadError) {
+      setError(userMessage(loadError, 'Не удалось загрузить диалог'));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function sendMessage(message) {
+    if (!selectedIncidentId) {
+      return;
+    }
+    setIsSending(true);
+    setError('');
+    try {
+      const payload = await fetch(`/api/otrs/incidents/${selectedIncidentId}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Admin-Token': token
+        },
+        body: JSON.stringify({ body: message })
+      }).then(readJson);
+      setMessages((current) => [...current, payload.message]);
+      setIncidents((current) => upsertIncident(current, payload.incident));
+    } catch (sendError) {
+      setError(userMessage(sendError, 'Не удалось отправить ответ'));
+    } finally {
+      setIsSending(false);
+    }
+  }
+
+  useEffect(() => {
+    if (token) {
+      loadIncidents(token);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-[#f7f8fb] text-slate-950">
+      <header className="border-b border-slate-200 bg-white">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-5 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="text-2xl font-black">VPN-GO OTRS</div>
+            <div className="text-sm text-slate-500">Инциденты поддержки со всех аккаунтов</div>
+          </div>
+          <form
+            className="flex gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              loadIncidents(draftToken);
+            }}
+          >
+            <input
+              value={draftToken}
+              onChange={(event) => setDraftToken(event.target.value)}
+              placeholder="Admin token"
+              className="h-11 min-w-0 rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-slate-950 md:w-80"
+            />
+            <button className="h-11 rounded-lg bg-slate-950 px-4 text-sm font-black text-white" disabled={isLoading}>
+              {isLoading ? '...' : 'Открыть'}
+            </button>
+          </form>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+        <SupportThreadChat
+          title="Поддержка"
+          subtitle={`${incidents.length} инцидентов`}
+          incidents={incidents}
+          selectedIncidentId={selectedIncidentId}
+          messages={messages}
+          ownAuthorType="support"
+          emptyText="Инцидентов пока нет."
+          isLoading={isLoading}
+          isSending={isSending}
+          error={error}
+          canCreateIncident={false}
+          onSelectIncident={selectIncident}
+          onSendMessage={sendMessage}
+        />
+      </main>
+    </div>
+  );
+}
+
 function InstructionsPage() {
   return (
     <div className="min-h-screen bg-[#f7f8fb] text-slate-950">
@@ -776,6 +1082,12 @@ export default function VPNLandingPage() {
   const [devicePendingRegenerate, setDevicePendingRegenerate] = useState(null);
   const [isRegeneratingDevice, setIsRegeneratingDevice] = useState(false);
   const [createdConfig, setCreatedConfig] = useState(null);
+  const [supportIncidents, setSupportIncidents] = useState([]);
+  const [selectedSupportIncidentId, setSelectedSupportIncidentId] = useState(null);
+  const [supportMessages, setSupportMessages] = useState([]);
+  const [supportError, setSupportError] = useState('');
+  const [isLoadingSupport, setIsLoadingSupport] = useState(false);
+  const [isSendingSupport, setIsSendingSupport] = useState(false);
   const configRevealTimerRef = useRef(null);
   const [heroBenefitIndex, setHeroBenefitIndex] = useState(0);
   const normalizedTopUpAmount = Number(String(topUpAmount).replace(',', '.'));
@@ -790,6 +1102,10 @@ export default function VPNLandingPage() {
 
   if (currentPath === '/admin') {
     return <AdminDashboard />;
+  }
+
+  if (currentPath === '/otrs') {
+    return <OtrsDashboard />;
   }
 
   if (currentPath === '/instructions') {
@@ -866,9 +1182,56 @@ export default function VPNLandingPage() {
     }
   }
 
+  async function loadSupportIncidents() {
+    if (!profile || !customerId) {
+      return;
+    }
+
+    setIsLoadingSupport(true);
+    setSupportError('');
+    try {
+      const payload = await fetch('/api/support/incidents').then(readJson);
+      const incidents = payload.incidents || [];
+      setSupportIncidents(incidents);
+      const nextSelectedId = selectedSupportIncidentId || incidents[0]?.id || null;
+      setSelectedSupportIncidentId(nextSelectedId);
+      if (nextSelectedId) {
+        await loadSupportMessages(nextSelectedId);
+      } else {
+        setSupportMessages([]);
+      }
+    } catch (error) {
+      if (error?.status === 401 || error?.status === 403) {
+        return;
+      }
+      setSupportError(userMessage(error, 'Не удалось загрузить поддержку'));
+    } finally {
+      setIsLoadingSupport(false);
+    }
+  }
+
+  async function loadSupportMessages(incidentId) {
+    const payload = await fetch(`/api/support/incidents/${incidentId}/messages`).then(readJson);
+    setSupportMessages(payload.messages || []);
+    if (payload.incident) {
+      setSupportIncidents((current) => upsertIncident(current, payload.incident));
+    }
+  }
+
   useEffect(() => {
     if (profile) {
       loadAccount(profile);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile, customerId]);
+
+  useEffect(() => {
+    if (profile && customerId) {
+      loadSupportIncidents();
+    } else {
+      setSupportIncidents([]);
+      setSelectedSupportIncidentId(null);
+      setSupportMessages([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile, customerId]);
@@ -1192,6 +1555,10 @@ export default function VPNLandingPage() {
     setCustomerId('');
     setDashboard(null);
     setCreatedConfig(null);
+    setSupportIncidents([]);
+    setSelectedSupportIncidentId(null);
+    setSupportMessages([]);
+    setSupportError('');
   }
 
   async function createPayment() {
@@ -1259,6 +1626,49 @@ export default function VPNLandingPage() {
       setDeviceError(userMessage(error, 'Не удалось добавить устройство'));
     } finally {
       setIsCreatingDevice(false);
+    }
+  }
+
+  async function selectSupportIncident(incidentId) {
+    setSelectedSupportIncidentId(incidentId);
+    setIsLoadingSupport(true);
+    setSupportError('');
+    try {
+      await loadSupportMessages(incidentId);
+    } catch (error) {
+      setSupportError(userMessage(error, 'Не удалось загрузить диалог'));
+    } finally {
+      setIsLoadingSupport(false);
+    }
+  }
+
+  async function sendSupportMessage(message) {
+    setIsSendingSupport(true);
+    setSupportError('');
+    try {
+      if (!selectedSupportIncidentId) {
+        const payload = await fetch('/api/support/incidents', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ body: message })
+        }).then(readJson);
+        setSupportIncidents((current) => upsertIncident(current, payload.incident));
+        setSelectedSupportIncidentId(payload.incident.id);
+        setSupportMessages(payload.messages || []);
+        return;
+      }
+
+      const payload = await fetch(`/api/support/incidents/${selectedSupportIncidentId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: message })
+      }).then(readJson);
+      setSupportMessages((current) => [...current, payload.message]);
+      setSupportIncidents((current) => upsertIncident(current, payload.incident));
+    } catch (error) {
+      setSupportError(userMessage(error, 'Не удалось отправить сообщение'));
+    } finally {
+      setIsSendingSupport(false);
     }
   }
 
@@ -1902,6 +2312,23 @@ export default function VPNLandingPage() {
                 )}
               </div>
             </div>
+
+            <SupportThreadChat
+              title="Поддержка"
+              subtitle="Диалоги идут отдельными инцидентами"
+              incidents={supportIncidents}
+              selectedIncidentId={selectedSupportIncidentId}
+              messages={supportMessages}
+              ownAuthorType="user"
+              emptyText="Напишите сообщение, чтобы создать новый инцидент."
+              isLoading={isLoadingSupport}
+              isSending={isSendingSupport}
+              error={supportError}
+              canCreateIncident
+              onSelectIncident={selectSupportIncident}
+              onSendMessage={sendSupportMessage}
+            />
+
             <div className="hidden lg:block">
               {paymentHistoryCard}
             </div>
