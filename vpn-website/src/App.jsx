@@ -590,6 +590,7 @@ function OtrsDashboard() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [hasAccess, setHasAccess] = useState(false);
 
   async function loadIncidents(nextToken = token) {
     if (!nextToken) {
@@ -604,6 +605,7 @@ function OtrsDashboard() {
       }).then(readJson);
       window.sessionStorage.setItem(ADMIN_TOKEN_KEY, nextToken);
       setToken(nextToken);
+      setHasAccess(true);
       setIncidents(payload.incidents || []);
       const nextSelectedId = selectedIncidentId || payload.incidents?.[0]?.id || null;
       setSelectedIncidentId(nextSelectedId);
@@ -613,6 +615,7 @@ function OtrsDashboard() {
         setMessages([]);
       }
     } catch (loadError) {
+      setHasAccess(false);
       setError(userMessage(loadError, 'Не удалось загрузить инциденты'));
     } finally {
       setIsLoading(false);
@@ -702,21 +705,35 @@ function OtrsDashboard() {
       </header>
 
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-        <SupportThreadChat
-          title="Поддержка"
-          subtitle={`${incidents.length} инцидентов`}
-          incidents={incidents}
-          selectedIncidentId={selectedIncidentId}
-          messages={messages}
-          ownAuthorType="support"
-          emptyText="Инцидентов пока нет."
-          isLoading={isLoading}
-          isSending={isSending}
-          error={error}
-          canCreateIncident={false}
-          onSelectIncident={selectIncident}
-          onSendMessage={sendMessage}
-        />
+        {!hasAccess ? (
+          <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="text-xl font-black">Вход в поддержку</div>
+            <div className="mt-2 text-sm leading-6 text-slate-500">
+              Введите admin token вверху страницы, чтобы открыть список инцидентов.
+            </div>
+            {error && (
+              <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {error}
+              </div>
+            )}
+          </div>
+        ) : (
+          <SupportThreadChat
+            title="Поддержка"
+            subtitle={`${incidents.length} инцидентов`}
+            incidents={incidents}
+            selectedIncidentId={selectedIncidentId}
+            messages={messages}
+            ownAuthorType="support"
+            emptyText="Инцидентов пока нет."
+            isLoading={isLoading}
+            isSending={isSending}
+            error={error}
+            canCreateIncident={false}
+            onSelectIncident={selectIncident}
+            onSendMessage={sendMessage}
+          />
+        )}
       </main>
     </div>
   );
@@ -2313,6 +2330,16 @@ export default function VPNLandingPage() {
               </div>
             </div>
 
+            <div className="hidden lg:block">
+              {paymentHistoryCard}
+            </div>
+          </section>
+
+          <section className="order-last min-w-0 lg:hidden">
+            {paymentHistoryCard}
+          </section>
+
+          <section className="order-last min-w-0 lg:col-span-2">
             <SupportThreadChat
               title="Поддержка"
               subtitle="Диалоги идут отдельными инцидентами"
@@ -2328,14 +2355,6 @@ export default function VPNLandingPage() {
               onSelectIncident={selectSupportIncident}
               onSendMessage={sendSupportMessage}
             />
-
-            <div className="hidden lg:block">
-              {paymentHistoryCard}
-            </div>
-          </section>
-
-          <section className="order-last min-w-0 lg:hidden">
-            {paymentHistoryCard}
           </section>
         </main>
         {deleteDeviceModal}
