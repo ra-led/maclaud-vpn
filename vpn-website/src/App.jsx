@@ -2366,8 +2366,8 @@ export default function VPNLandingPage() {
               {isSupportOpen && (
                 <div className="border-t border-slate-200 p-0">
                   <SupportThreadChat
-                    title="Поддержка"
-                    subtitle="Диалоги идут отдельными инцидентами"
+                    title="Пишите, если столкнулись с проблемой"
+                    subtitle="Ответим в ближайшее время."
                     incidents={supportIncidents}
                     selectedIncidentId={selectedSupportIncidentId}
                     messages={supportMessages}
