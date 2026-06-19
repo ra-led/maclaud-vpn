@@ -613,23 +613,10 @@ function createReferralToken() {
   return crypto.randomBytes(18).toString('base64url');
 }
 
-async function getOrCreateActiveReferralLink(userId) {
+async function getCanonicalReferralToken(userId) {
   const accountId = parseControlPlaneAccountId(userId);
   if (!accountId) {
     return null;
-  }
-
-  const usedThisMonth = await getReferralMonthlyCount(accountId);
-  const remainingThisMonth = Math.max(0, REFERRAL_MONTHLY_LIMIT - usedThisMonth);
-  if (remainingThisMonth <= 0) {
-    return {
-      available: false,
-      token: null,
-      used_this_month: usedThisMonth,
-      remaining_this_month: 0,
-      monthly_limit: REFERRAL_MONTHLY_LIMIT,
-      bonus_kopecks: REFERRAL_BONUS_KOPECKS
-    };
   }
 
   const existing = await pool.query(
@@ -637,8 +624,7 @@ async function getOrCreateActiveReferralLink(userId) {
       SELECT token
       FROM referral_links
       WHERE referrer_user_id = $1
-        AND used_at IS NULL
-      ORDER BY created_at DESC
+      ORDER BY (used_at IS NULL) DESC, created_at DESC
       LIMIT 1
     `,
     [String(accountId)]
@@ -659,6 +645,30 @@ async function getOrCreateActiveReferralLink(userId) {
     );
     token = inserted.rows[0]?.token;
   }
+
+  return token || null;
+}
+
+async function getOrCreateActiveReferralLink(userId) {
+  const accountId = parseControlPlaneAccountId(userId);
+  if (!accountId) {
+    return null;
+  }
+
+  const usedThisMonth = await getReferralMonthlyCount(accountId);
+  const remainingThisMonth = Math.max(0, REFERRAL_MONTHLY_LIMIT - usedThisMonth);
+  if (remainingThisMonth <= 0) {
+    return {
+      available: false,
+      token: null,
+      used_this_month: usedThisMonth,
+      remaining_this_month: 0,
+      monthly_limit: REFERRAL_MONTHLY_LIMIT,
+      bonus_kopecks: REFERRAL_BONUS_KOPECKS
+    };
+  }
+
+  const token = await getCanonicalReferralToken(accountId);
 
   return {
     available: Boolean(token),
@@ -1150,7 +1160,7 @@ async function resolveExistingReferralAccount(req, _claimedUserId = null, { allo
   return getVisitorAccount(req);
 }
 
-async function validateReferralLinkForRegistration({ referrerUserId, referralToken, allowUsed = false }) {
+async function validateReferralLinkForRegistration({ referrerUserId, referralToken }) {
   const referrerId = parseControlPlaneAccountId(referrerUserId);
   if (!referrerId) {
     const error = new Error('Invalid referral link');
@@ -1164,10 +1174,11 @@ async function validateReferralLinkForRegistration({ referrerUserId, referralTok
     error.status = 404;
     throw error;
   }
-  if (link.used_at && !allowUsed) {
-    const error = new Error('По этой ссылке уже была регистрация.');
-    error.status = 409;
-    error.code = 'referral_link_used';
+  const canonicalToken = await getCanonicalReferralToken(referrerId);
+  if (!canonicalToken || link.token !== canonicalToken) {
+    const error = new Error('Referral link is no longer active');
+    error.status = 404;
+    error.code = 'referral_link_not_active';
     throw error;
   }
 
@@ -1359,37 +1370,6 @@ async function applyReferralActivation({ req, referrerUserId, referralToken, inv
   const activation = inserted.rows[0];
   if (!activation) {
     return { applied: false, reason: 'already_activated' };
-  }
-
-  const claimedLink = await pool.query(
-    `
-      UPDATE referral_links
-      SET used_at = NOW(), used_by_user_id = $3
-      WHERE token = $1
-        AND referrer_user_id = $2
-        AND used_at IS NULL
-        AND (
-          SELECT COUNT(*)::int
-          FROM referral_activations
-          WHERE referrer_user_id = $2
-            AND status = 'awarded'
-            AND awarded_at >= date_trunc('month', NOW())
-            AND awarded_at < date_trunc('month', NOW()) + INTERVAL '1 month'
-        ) < $4
-      RETURNING token
-    `,
-    [referralToken, String(referrerId), String(invitedId), REFERRAL_MONTHLY_LIMIT]
-  );
-  if (!claimedLink.rows[0]) {
-    await pool.query(
-      `
-        UPDATE referral_activations
-        SET status = 'failed', error_text = 'referral_link_unavailable'
-        WHERE id = $1
-      `,
-      [activation.id]
-    );
-    return { applied: false, reason: 'referral_link_unavailable' };
   }
 
   try {
