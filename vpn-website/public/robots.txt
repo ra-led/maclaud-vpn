@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /otrs
+Disallow: /payment-return
+
+Sitemap: https://vpn-go.ru/sitemap.xml

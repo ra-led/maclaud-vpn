@@ -127,6 +127,39 @@ const heroBenefits = [
   'Конфиги для всех устройств'
 ];
 
+const seoAdvantages = [
+  ['Оплата по балансу', 'VPN-GO списывает 5 ₽ в сутки, поэтому не нужно покупать длинную подписку заранее.'],
+  ['WireGuard и AmneziaWG', 'Подключение идет через быстрый современный VPN-протокол и готовые приложения для популярных платформ.'],
+  ['Отдельные устройства', 'В личном кабинете можно создать конфиг для телефона, ноутбука или второго компьютера.'],
+  ['Быстрый старт', 'После регистрации достаточно пополнить баланс, скачать .conf или открыть QR-код и включить туннель.']
+];
+
+const platformSeoItems = [
+  ['Android', 'VPN для Android подключается через приложение AmneziaWG и отдельный конфиг из личного кабинета.'],
+  ['iOS', 'VPN для iPhone и iPad работает через AmneziaWG: импортируйте .conf файл или используйте QR-код.'],
+  ['Windows', 'VPN для Windows можно включить после установки AmneziaWG и импорта конфигурации устройства.'],
+  ['macOS', 'VPN для macOS подключается через AmneziaWG с отдельным конфигом для компьютера.']
+];
+
+const faqItems = [
+  [
+    'Сколько стоит VPN-GO?',
+    'VPN-GO стоит 5 ₽ в сутки. Баланс пополняется в личном кабинете, списание идет за дни использования.'
+  ],
+  [
+    'Какие устройства можно подключить?',
+    'Можно подключать Android, iOS, Windows и macOS. Для каждого телефона, планшета или компьютера создается отдельный VPN-конфиг.'
+  ],
+  [
+    'Как быстро начать пользоваться VPN?',
+    'Зарегистрируйтесь, пополните баланс, добавьте устройство и импортируйте .conf файл в AmneziaWG. Инструкция доступна на отдельной странице.'
+  ],
+  [
+    'Нужна ли длинная подписка?',
+    'Нет. VPN-GO работает по балансу, поэтому сервис подходит для регулярного использования и для ситуаций, когда VPN нужен только на несколько дней.'
+  ]
+];
+
 function getStoredProfile() {
   try {
     const raw = window.localStorage.getItem(STORAGE_PROFILE_KEY);
@@ -2504,6 +2537,65 @@ export default function VPNLandingPage() {
         </section>
 
         <section className="mx-auto max-w-7xl px-6 py-20">
+          <div className="max-w-3xl">
+            <h2 className="text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
+              VPN для телефона и компьютера без длинной подписки
+            </h2>
+            <p className="mt-5 text-lg leading-8 text-slate-600">
+              VPN-GO помогает быстро подключить защищенный доступ в интернет на Android, iOS, Windows и macOS.
+              Сервис использует конфиги для AmneziaWG, а оплата идет по балансу: 5 ₽ в сутки за использование.
+            </p>
+          </div>
+          <div className="mt-10 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+            {seoAdvantages.map(([title, text]) => (
+              <article key={title} className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+                <h3 className="text-lg font-black text-slate-950">{title}</h3>
+                <p className="mt-3 text-sm leading-7 text-slate-600">{text}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="border-y border-slate-200 bg-white">
+          <div className="mx-auto max-w-7xl px-6 py-16">
+            <div className="grid gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-start">
+              <div>
+                <h2 className="text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
+                  Подключение через AmneziaWG
+                </h2>
+                <p className="mt-5 text-base leading-8 text-slate-600">
+                  В личном кабинете VPN-GO создается отдельная VPN-конфигурация для каждого устройства.
+                  Скачайте файл .conf, импортируйте его в AmneziaWG и включите туннель.
+                </p>
+                <a
+                  href="/instructions/"
+                  className="mt-7 inline-flex items-center justify-center rounded-lg border border-slate-300 px-5 py-3 text-sm font-black text-slate-800 transition hover:border-slate-500 hover:bg-slate-50"
+                >
+                  Открыть инструкции
+                </a>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {platformSeoItems.map(([platform, text]) => (
+                  <article key={platform} className="rounded-lg border border-slate-200 bg-[#f7f8fb] p-5">
+                    <div className="flex items-center gap-3">
+                      <PlatformIcon name={platform === 'iOS' ? 'ios' : platform === 'macOS' ? 'macos' : platform.toLowerCase()} />
+                      <h3 className="text-lg font-black">{platform}</h3>
+                    </div>
+                    <p className="mt-3 text-sm leading-7 text-slate-600">{text}</p>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-7xl px-6 py-20">
+          <div className="mb-10 max-w-3xl">
+            <h2 className="text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">Как начать пользоваться VPN-GO</h2>
+            <p className="mt-4 text-base leading-8 text-slate-600">
+              Весь путь занимает несколько минут: аккаунт, баланс, конфиг и включенный VPN-туннель на нужном устройстве.
+            </p>
+          </div>
           <div className="grid gap-5 md:grid-cols-3">
             {[
               ['1', 'Зарегистрируйтесь', 'Создайте аккаунт VPN-GO и войдите в личный кабинет.'],
@@ -2518,6 +2610,25 @@ export default function VPNLandingPage() {
                 <p className="mt-3 text-sm leading-7 text-slate-600">{text}</p>
               </div>
             ))}
+          </div>
+        </section>
+
+        <section className="border-t border-slate-200 bg-white">
+          <div className="mx-auto max-w-7xl px-6 py-20">
+            <div className="max-w-3xl">
+              <h2 className="text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">Вопросы о VPN-GO</h2>
+              <p className="mt-4 text-base leading-8 text-slate-600">
+                Коротко о цене, устройствах и подключении VPN через личный кабинет.
+              </p>
+            </div>
+            <div className="mt-10 grid gap-4 lg:grid-cols-2">
+              {faqItems.map(([question, answer]) => (
+                <article key={question} className="rounded-lg border border-slate-200 bg-[#f7f8fb] p-6">
+                  <h3 className="text-lg font-black text-slate-950">{question}</h3>
+                  <p className="mt-3 text-sm leading-7 text-slate-600">{answer}</p>
+                </article>
+              ))}
+            </div>
           </div>
         </section>
       </main>
